@@ -1,0 +1,20 @@
+{
+  "name": "codex-copilot-bridge",
+  "version": "1.0.0",
+  "description": "Route OpenAI Codex through your GitHub Copilot subscription",
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build": "pkg . --targets node18-win-x64 --output dist/codex-copilot-bridge.exe"
+  },
+  "pkg": {
+    "assets": [
+      "codex-color.png",
+      "bridge-icon.ico"
+    ]
+  },
+  "devDependencies": {
+    "rcedit": "^5.0.2"
+  }
+}
