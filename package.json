@@ -6,18 +6,12 @@
   "bin": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build:win": "pkg . --targets node18-win-x64 --output dist/codex-copilot-bridge.exe",
-    "build:mac-arm64": "pkg . --targets node20-macos-arm64 --output dist/codex-copilot-bridge-mac-arm64",
-    "build:mac-x64": "pkg . --targets node20-macos-x64 --output dist/codex-copilot-bridge-mac-x64",
-    "build:mac": "npm run build:mac-arm64 && npm run build:mac-x64"
+    "build:mac": "bash scripts/build-mac-app.sh",
+    "build:win": "pkg . --targets node20-win-x64 --output dist/codex-copilot-bridge.exe"
   },
   "pkg": {
     "assets": [
-      "codex-color.png",
-      "bridge-icon.ico"
+      "assets/**/*"
     ]
-  },
-  "devDependencies": {
-    "rcedit": "^5.0.2"
   }
 }

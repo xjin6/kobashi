@@ -1,2 +1,5 @@
 node_modules/
+dist/
 *.exe
+.DS_Store
+package-lock.json
