@@ -2,7 +2,7 @@
 
 Route OpenAI Codex through your GitHub Copilot subscription.
 
-This tool acts as a local proxy that lets [OpenAI Codex](https://openai.com/index/codex/) (the CLI agent and VS Code extension) use your existing GitHub Copilot subscription instead of a separate OpenAI API key.
+This tool acts as a local proxy that lets [OpenAI Codex](https://openai.com/index/introducing-gpt-5-3-codex/) (the CLI agent and VS Code extension) use your existing GitHub Copilot subscription instead of a separate OpenAI API key.
 
 ## Download
 
