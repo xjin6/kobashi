@@ -127,11 +127,13 @@ function writeCodexConfig() {
 
   fs.writeFileSync(CODEX_CONFIG, out);
 
-  // Set user-level env var so new terminals pick it up
+  // Set user-level env vars so new terminals / VS Code pick them up
   if (process.platform === "win32") {
     try { execSync('setx OPENAI_API_KEY PROXY_MANAGED', { stdio: "ignore" }); } catch {}
+    try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
   } else if (process.platform === "darwin") {
     try { execSync('launchctl setenv OPENAI_API_KEY PROXY_MANAGED', { stdio: "ignore" }); } catch {}
+    try { execSync(`launchctl setenv OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
   }
   console.log("[Bridge] Codex config injected");
 }
@@ -149,11 +151,13 @@ function restoreCodexConfig() {
   } else if (fs.existsSync(CODEX_CONFIG)) {
     fs.unlinkSync(CODEX_CONFIG);
   }
-  // Remove the env var we set
+  // Remove the env vars we set
   if (process.platform === "win32") {
     try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore" }); } catch {}
+    try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_BASE_URL /f', { stdio: "ignore" }); } catch {}
   } else if (process.platform === "darwin") {
     try { execSync('launchctl unsetenv OPENAI_API_KEY', { stdio: "ignore" }); } catch {}
+    try { execSync('launchctl unsetenv OPENAI_BASE_URL', { stdio: "ignore" }); } catch {}
   }
   console.log("[Bridge] Codex config restored");
 }
@@ -216,7 +220,15 @@ const proxy = http.createServer(async (req, res) => {
         "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
         "X-GitHub-Api-Version": "2025-10-01",
       },
-    }, (upstreamRes) => { res.writeHead(upstreamRes.statusCode, upstreamRes.headers); upstreamRes.pipe(res); });
+    }, (upstreamRes) => {
+      console.log(`[Proxy] ${req.method} ${p} → ${upstreamRes.statusCode}`);
+      if (upstreamRes.statusCode !== 200) {
+        const chunks2 = [];
+        upstreamRes.on("data", c => chunks2.push(c));
+        upstreamRes.on("end", () => console.log(`[Proxy] body: ${Buffer.concat(chunks2).toString().slice(0, 300)}`));
+      }
+      res.writeHead(upstreamRes.statusCode, upstreamRes.headers); upstreamRes.pipe(res);
+    });
     upstream.on("error", (e) => { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); });
     if (bodyBuf.length) upstream.write(bodyBuf);
     upstream.end();
@@ -467,7 +479,7 @@ const HTML = `<!DOCTYPE html>
     <div class="env-box">
       <span class="key">OPENAI_BASE_URL</span>=<span class="val">http://127.0.0.1:${PROXY_PORT}/v1</span><br/>
       <span class="key">OPENAI_API_KEY</span>=<span class="val">PROXY_MANAGED</span><br/>
-      <span style="color:#484f58">Config auto-injected to ~/.codex/</span>
+      <span style="color:#484f58">Config auto-injected to ~/.codex/<br/>Restart VS Code to pick up env vars</span>
     </div>
   </div>
 </div>
