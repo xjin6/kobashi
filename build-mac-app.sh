@@ -35,15 +35,17 @@ chmod +x "${APP}/Contents/Resources/bin/${BINARY}-arm64"
 chmod +x "${APP}/Contents/Resources/bin/${BINARY}-x64"
 rm "dist/${BINARY}-arm64" "dist/${BINARY}-x64"
 
-# Shell launcher — picks the right arch
+# Shell launcher — detaches the server immediately so macOS doesn't hang waiting
 cat > "${APP}/Contents/MacOS/${BINARY}" << 'LAUNCHER'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")/../Resources/bin" && pwd)"
 if [ "$(uname -m)" = "arm64" ]; then
-  exec "$DIR/codex-copilot-bridge-arm64" "$@"
+  BINARY_PATH="$DIR/codex-copilot-bridge-arm64"
 else
-  exec "$DIR/codex-copilot-bridge-x64" "$@"
+  BINARY_PATH="$DIR/codex-copilot-bridge-x64"
 fi
+# Run in background so this script exits immediately (avoids macOS "not responding")
+nohup "$BINARY_PATH" > /tmp/codex-copilot-bridge.log 2>&1 &
 LAUNCHER
 chmod +x "${APP}/Contents/MacOS/${BINARY}"
 
@@ -70,7 +72,7 @@ cat > "${APP}/Contents/Info.plist" << PLIST
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
-  <key>LSUIElement</key>
+  <key>LSBackgroundOnly</key>
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
