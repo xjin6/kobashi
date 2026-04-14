@@ -8,13 +8,12 @@
 <title>Codex Copilot Bridge</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  :root{--bg:#0a0c10;--fg:#e6edf3;--muted:#8b949e;--card-bg:rgba(22,27,34,.85);--card-border:rgba(48,54,61,.6);--card-shadow:0 24px 48px rgba(0,0,0,.4),0 0 0 1px rgba(48,54,61,.3);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(88,166,255,.15),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(63,185,80,.12),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(136,103,255,.12),transparent 50%);--accent1:#58a6ff;--accent2:#a371f7;--btn-bg:rgba(33,38,45,.8);--btn-border:rgba(48,54,61,.8);--btn-hover-bg:rgba(48,54,61,.8);--btn-hover-border:rgba(88,166,255,.3);--btn-hover-glow:0 0 20px rgba(88,166,255,.1);--code-bg:rgba(13,17,23,.8);--code-border:rgba(48,54,61,.6);--panel-bg:rgba(33,38,45,.85);--panel-border:rgba(48,54,61,.5);--toggle-bg:#21262d;--toggle-border:#30363d;--badge-bg:rgba(88,166,255,.1);--badge-border:rgba(88,166,255,.2);--badge-color:#58a6ff;--disconnect-color:#f85149;--disconnect-border:rgba(248,81,73,.3);--env-bg:rgba(22,27,34,.9);--env-border:rgba(48,54,61,.4);--env-key:#ff7b72;--env-val:#a5d6ff;--dot-gray:#484f58;--spinner-bg:rgba(48,54,61,.8);--logo-color:#58a6ff;--toggle-on-bg:#1f6feb;--toggle-on-border:#1f6feb;--toggle-on-shadow:rgba(31,111,235,.25);--dot-active:#58a6ff;--dot-active-glow:rgba(88,166,255,.35);--copied-color:#58a6ff}
+  :root{--bg:#0a0c10;--fg:#e6edf3;--muted:#8b949e;--card-bg:rgba(22,27,34,.85);--card-border:rgba(48,54,61,.6);--card-shadow:0 24px 48px rgba(0,0,0,.4),0 0 0 1px rgba(48,54,61,.3);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(88,166,255,.15),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(63,185,80,.12),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(136,103,255,.12),transparent 50%);--accent1:#58a6ff;--accent2:#a371f7;--btn-bg:rgba(33,38,45,.8);--btn-border:rgba(48,54,61,.8);--btn-hover-bg:rgba(48,54,61,.8);--btn-hover-border:rgba(88,166,255,.3);--btn-hover-glow:0 0 20px rgba(88,166,255,.1);--code-bg:rgba(13,17,23,.8);--code-border:rgba(48,54,61,.6);--panel-bg:rgba(33,38,45,.85);--panel-border:rgba(48,54,61,.5);--toggle-bg:#21262d;--toggle-border:#30363d;--badge-bg:rgba(88,166,255,.1);--badge-border:rgba(88,166,255,.2);--badge-color:#58a6ff;--disconnect-color:#f85149;--disconnect-border:rgba(248,81,73,.3);--env-bg:rgba(33,38,45,.85);--env-border:rgba(48,54,61,.5);--env-key:#ff7b72;--env-val:#a5d6ff;--dot-gray:#484f58;--spinner-bg:rgba(48,54,61,.8);--logo-color:#58a6ff;--toggle-on-bg:#1f6feb;--toggle-on-border:#1f6feb;--toggle-on-shadow:rgba(31,111,235,.25);--dot-active:#58a6ff;--dot-active-glow:rgba(88,166,255,.35);--copied-color:#58a6ff}
   [data-theme="light"]{--bg:#f0f4f0;--fg:#1a2e1a;--muted:#5a6e5a;--card-bg:rgba(255,255,255,.9);--card-border:rgba(46,139,87,.15);--card-shadow:0 24px 48px rgba(0,0,0,.08),0 0 0 1px rgba(46,139,87,.1);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(34,197,94,.1),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(16,185,129,.08),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(74,222,128,.06),transparent 50%);--accent1:#15803d;--accent2:#0891b2;--btn-bg:rgba(255,255,255,.9);--btn-border:rgba(46,139,87,.25);--btn-hover-bg:rgba(240,253,244,.9);--btn-hover-border:rgba(34,197,94,.5);--btn-hover-glow:0 0 20px rgba(34,197,94,.1);--code-bg:rgba(240,253,244,.8);--code-border:rgba(46,139,87,.15);--panel-bg:rgba(240,253,244,.6);--panel-border:rgba(46,139,87,.12);--toggle-bg:#d1d5db;--toggle-border:#9ca3af;--badge-bg:rgba(34,197,94,.1);--badge-border:rgba(34,197,94,.25);--badge-color:#16a34a;--disconnect-color:#dc2626;--disconnect-border:rgba(220,38,38,.3);--env-bg:rgba(240,253,244,.8);--env-border:rgba(46,139,87,.12);--env-key:#b91c1c;--env-val:#1e40af;--dot-gray:#9ca3af;--spinner-bg:rgba(46,139,87,.2);--logo-color:#16a34a;--toggle-on-bg:#238636;--toggle-on-border:#238636;--toggle-on-shadow:rgba(35,134,54,.3);--dot-active:#3fb950;--dot-active-glow:rgba(63,185,80,.4);--copied-color:#3fb950}
   html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column;overflow:hidden;transition:background .3s,color .3s}
   .bg{position:fixed;inset:0;z-index:0;background:var(--bg-glow)}
-  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;transition:background .3s,color .3s}
-  .card-main{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 32px}
+  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:24px 32px 0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;transition:background .3s,color .3s}
   .logo{display:flex;align-items:center;gap:10px;margin-bottom:6px}
   .logo svg{width:28px;height:28px;color:var(--logo-color)}
   h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent1),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -32,8 +31,7 @@
   .spinner{width:14px;height:14px;border:2px solid var(--spinner-bg);border-top-color:var(--accent1);border-radius:50%;display:inline-block;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-  .status{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;color:var(--muted);margin-top:12px}
-  #view-idle{text-align:center}
+  .status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:12px}
   .panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:18px;margin-top:16px;transition:all .3s}
   .panel-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .panel-row:last-child{margin-bottom:0}
@@ -57,7 +55,12 @@
   .fade-in{animation:fadeIn .4s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   #view-idle,#view-waiting,#view-connected{display:none}
-  .footer{padding:0 32px 14px;font-size:10px;color:var(--muted);opacity:.65;text-align:right;line-height:1.6}
+  #view-idle{position:absolute;inset:0;z-index:1;justify-content:center;align-items:center;padding:0 32px}
+  #view-waiting{position:absolute;inset:0;z-index:1;flex-direction:column;justify-content:center;padding:0 32px}
+  #view-connected{flex:1}
+  .logo,.sub{position:relative;z-index:2}
+  .footer{position:relative;z-index:2}
+  .footer{margin-top:auto;padding:16px 0 14px;font-size:10px;color:var(--muted);opacity:.65;text-align:right;line-height:1.6}
   .footer a{color:inherit;text-decoration:none;cursor:pointer}
   .footer a:hover{opacity:.8;text-decoration:underline}
   .theme-btn{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:8px;border:1px solid var(--card-border);background:var(--btn-bg);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;z-index:2}
@@ -68,7 +71,6 @@
 <div class="bg"></div>
 <div class="card">
   <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode"><svg id="theme-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"></svg></button>
-  <div class="card-main">
   <div class="logo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
     <h1>Codex Copilot Bridge</h1>
@@ -123,7 +125,6 @@
       <span style="color:#484f58">Config auto-injected to ~/.codex/<br/>Restart VS Code to pick up env vars</span>
     </div>
   </div>
-  </div><!-- /card-main -->
   <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/codex-copilot-bridge'})});return false">xjin6</a> &middot; v1.1.0 &middot; 2026-04-14</div>
 </div>
 
@@ -138,7 +139,7 @@ function applyTheme(t){
 function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
 (function(){const s=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');applyTheme(s)})();
 let pollTimer=null,pollInterval=5000;
-function show(v){['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');document.getElementById('view-'+v).style.display='block'}
+function show(v){['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');document.getElementById('view-'+v).style.display=v==='connected'?'block':'flex'}
 function updateToggle(on){
   const t=document.getElementById('toggle'),d=document.getElementById('status-dot'),s=document.getElementById('status-text');
   if(on){t.classList.add('on');d.className='dot dot-green dot-pulse';s.textContent='Active'}

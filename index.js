@@ -145,6 +145,41 @@ function restoreCodexConfig() {
   log("[Bridge] Codex config restored");
 }
 
+// ─── Session persistence ────────────────────────────────────────────────────
+const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, ".codex", "ccb-session.json");
+
+function saveSession() {
+  try {
+    fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, bridgeEnabled }, null, 2));
+    try { fs.chmodSync(SESSION_FILE, 0o600); } catch {}
+  } catch (e) { dbg("[Session] save failed:", e.message); }
+}
+
+function deleteSession() {
+  try { if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE); } catch {}
+}
+
+async function loadSession() {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return false;
+    const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
+    if (!data.github_token) return false;
+    githubToken = data.github_token;
+    username = data.username || "";
+    bridgeEnabled = data.bridgeEnabled !== false;
+    await ensureCopilotToken();
+    if (bridgeEnabled) writeCodexConfig();
+    log("[Bridge] Session restored for", username);
+    return true;
+  } catch (e) {
+    dbg("[Session] restore failed:", e.message);
+    githubToken = null; username = null; bridgeEnabled = false;
+    deleteSession();
+    return false;
+  }
+}
+
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, bridgeEnabled = false;
@@ -172,6 +207,11 @@ async function ensureCopilotToken() {
     hostname: "api.github.com", path: "/copilot_internal/v2/token", method: "GET",
     headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2", "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
   });
+  if (res.status === 401 || res.status === 403) {
+    githubToken = null; copilotToken = null; username = null; bridgeEnabled = false;
+    deleteSession(); restoreCodexConfig();
+    throw new Error(`GitHub token revoked (${res.status})`);
+  }
   if (res.status !== 200) throw new Error(`Copilot token error: ${res.status}`);
   copilotToken = res.body.token;
   copilotTokenExpiry = res.body.expires_at;
@@ -232,6 +272,7 @@ const ui = http.createServer(async (req, res) => {
       username = u.body.login || "";
       bridgeEnabled = true;
       writeCodexConfig();
+      saveSession();
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ access_token: githubToken, username }));
     } else {
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ pending: true, error: r.body.error }));
@@ -246,11 +287,12 @@ const ui = http.createServer(async (req, res) => {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
     bridgeEnabled = !bridgeEnabled;
     if (bridgeEnabled) writeCodexConfig(); else restoreCodexConfig();
+    saveSession();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ bridgeEnabled })); return;
   }
   if (req.method === "POST" && req.url === "/api/disconnect") {
     githubToken = null; copilotToken = null; username = null; bridgeEnabled = false;
-    restoreCodexConfig();
+    deleteSession(); restoreCodexConfig();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.method === "POST" && req.url === "/api/open-url") {
@@ -295,8 +337,9 @@ const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
 });
 testReq.on("error", () => {
   proxy.listen(PROXY_PORT, () => log(`[Bridge] Proxy on http://127.0.0.1:${PROXY_PORT}`));
-  ui.listen(UI_PORT, () => {
+  ui.listen(UI_PORT, async () => {
     log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
+    await loadSession();
     openBrowser();
     // Idle timeout only in standalone mode (not managed by .app Swift wrapper)
     if (!process.argv.includes("--no-open")) {
