@@ -37,7 +37,7 @@ function findBrowser() {
     if (fs.existsSync(p)) return p;
   }
   for (const cmd of ["msedge", "chrome"]) {
-    try { const r = execSync(`where ${cmd}`, { stdio: "pipe" }).toString().trim().split("\n")[0]; if (r) return r.trim(); } catch {}
+    try { const r = execSync(`where ${cmd}`, { stdio: "pipe", windowsHide: true }).toString().trim().split("\n")[0]; if (r) return r.trim(); } catch {}
   }
   return null;
 }
@@ -55,9 +55,9 @@ function openAppWindow(url) {
     }
   } else {
     if (BROWSER_PATH) {
-      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=420,560`, { stdio: "ignore", shell: true });
+      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=420,560`, { stdio: "ignore", shell: true, windowsHide: true });
     } else {
-      execSync(`start "" "${url}"`, { stdio: "ignore", shell: true });
+      execSync(`start "" "${url}"`, { stdio: "ignore", shell: true, windowsHide: true });
     }
   }
 }
@@ -68,9 +68,19 @@ const PROXY_PORT = 18921;
 const UI_PORT = 18922;
 
 // ─── Assets ────────────────────────────────────────────────────────────────
-const ASSETS = path.join(__dirname, "assets");
-const HTML = fs.readFileSync(path.join(ASSETS, "ui.html"), "utf-8")
-  .replace("{{PROXY_PORT}}", PROXY_PORT);
+let SEA = null;
+try { const s = require("node:sea"); if (s.isSea()) SEA = s; } catch {}
+
+function getAsset(name) {
+  if (SEA) return Buffer.from(SEA.getAsset(name));
+  return fs.readFileSync(path.join(__dirname, "assets", name));
+}
+function getAssetText(name) {
+  if (SEA) return SEA.getAsset(name, "utf-8");
+  return fs.readFileSync(path.join(__dirname, "assets", name), "utf-8");
+}
+
+const HTML = getAssetText("ui.html").replace("{{PROXY_PORT}}", PROXY_PORT);
 
 // ─── Codex config paths ────────────────────────────────────────────────────
 const CODEX_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".codex");
@@ -120,8 +130,8 @@ function writeCodexConfig() {
   fs.writeFileSync(CODEX_CONFIG, out);
 
   if (process.platform === "win32") {
-    try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore" }); } catch {}
-    try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
+    try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore", windowsHide: true }); } catch {}
+    try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore", windowsHide: true }); } catch {}
   } else if (process.platform === "darwin") {
     try { execSync("launchctl setenv OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore" }); } catch {}
     try { execSync(`launchctl setenv OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
@@ -136,8 +146,8 @@ function restoreCodexConfig() {
   else if (fs.existsSync(CODEX_CONFIG)) fs.unlinkSync(CODEX_CONFIG);
 
   if (process.platform === "win32") {
-    try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore" }); } catch {}
-    try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_BASE_URL /f', { stdio: "ignore" }); } catch {}
+    try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore", windowsHide: true }); } catch {}
+    try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_BASE_URL /f', { stdio: "ignore", windowsHide: true }); } catch {}
   } else if (process.platform === "darwin") {
     try { execSync("launchctl unsetenv OPENAI_API_KEY", { stdio: "ignore" }); } catch {}
     try { execSync("launchctl unsetenv OPENAI_BASE_URL", { stdio: "ignore" }); } catch {}
@@ -300,21 +310,21 @@ const ui = http.createServer(async (req, res) => {
     const { url } = JSON.parse(Buffer.concat(chunks).toString());
     if (url && url.startsWith("https://")) {
       if (process.platform === "darwin") spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-      else execSync(`start "" "${url}"`, { stdio: "ignore", shell: true });
+      else execSync(`start "" "${url}"`, { stdio: "ignore", shell: true, windowsHide: true });
     }
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.url === "/favicon.png" || req.url === "/icon-192.png" || req.url === "/icon-512.png") {
     res.writeHead(200, { "Content-Type": "image/png" });
-    res.end(fs.readFileSync(path.join(ASSETS, "codex-color.png"))); return;
+    res.end(getAsset("codex-color.png")); return;
   }
   if (req.url === "/favicon.ico") {
     if (process.platform === "win32") {
       res.writeHead(200, { "Content-Type": "image/x-icon" });
-      res.end(fs.readFileSync(path.join(ASSETS, "bridge-icon.ico"))); return;
+      res.end(getAsset("bridge-icon.ico")); return;
     }
     res.writeHead(200, { "Content-Type": "image/png" });
-    res.end(fs.readFileSync(path.join(ASSETS, "codex-color.png"))); return;
+    res.end(getAsset("codex-color.png")); return;
   }
   if (req.url === "/manifest.json") {
     res.writeHead(200, { "Content-Type": "application/manifest+json" });
@@ -332,8 +342,7 @@ function openBrowser() {
 }
 
 const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
-  log("[Bridge] Already running, opening browser");
-  openBrowser(); process.exit(0);
+  process.exit(0);
 });
 testReq.on("error", () => {
   proxy.listen(PROXY_PORT, () => log(`[Bridge] Proxy on http://127.0.0.1:${PROXY_PORT}`));
