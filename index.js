@@ -289,6 +289,14 @@ const ui = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (req.method === "POST" && req.url === "/api/heartbeat") {
+    lastHeartbeat = Date.now();
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
+  }
+  if (req.method === "POST" && req.url === "/api/focus") {
+    focusAppWindow();
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
+  }
   if (req.url === "/api/status") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ connected: !!githubToken, username, bridgeEnabled, proxyPort: PROXY_PORT })); return;
@@ -337,17 +345,32 @@ const ui = http.createServer(async (req, res) => {
 process.on("SIGINT", () => { if (bridgeEnabled) restoreCodexConfig(); process.exit(); });
 process.on("SIGTERM", () => { if (bridgeEnabled) restoreCodexConfig(); process.exit(); });
 
+let lastHeartbeat = 0;
+
+function focusAppWindow() {
+  if (process.platform === "win32") {
+    const ps = `
+      Add-Type @"
+      using System; using System.Runtime.InteropServices;
+      public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); }
+"@
+      Get-Process msedge,chrome,brave -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -like '*Codex Copilot Bridge*' } |
+        ForEach-Object { [W]::ShowWindow($_.MainWindowHandle,9); [W]::SetForegroundWindow($_.MainWindowHandle) }
+    `;
+    try { execSync(`powershell -WindowStyle Hidden -Command "${ps.replace(/\n\s*/g, ' ')}"`, { stdio: "ignore", windowsHide: true }); } catch {}
+  }
+}
+
 function openBrowser() {
   if (!process.argv.includes("--no-open")) openAppWindow(`http://127.0.0.1:${UI_PORT}`);
 }
 
 const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
-  // Already running — reopen the window
-  if (process.platform === "win32")
-    execSync(`start "" "http://127.0.0.1:${UI_PORT}"`, { stdio: "ignore", shell: true, windowsHide: true });
-  else
-    spawn("open", [`http://127.0.0.1:${UI_PORT}`], { detached: true, stdio: "ignore" }).unref();
-  process.exit(0);
+  // Already running — ask the server to focus its window
+  const focusReq = http.request({ hostname: "127.0.0.1", port: UI_PORT, path: "/api/focus", method: "POST" }, () => process.exit(0));
+  focusReq.on("error", () => process.exit(0));
+  focusReq.end();
 });
 testReq.on("error", () => {
   proxy.listen(PROXY_PORT, () => log(`[Bridge] Proxy on http://127.0.0.1:${PROXY_PORT}`));
@@ -355,19 +378,17 @@ testReq.on("error", () => {
     log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
     await loadSession();
     openBrowser();
-    // Idle timeout only in standalone mode (not managed by .app Swift wrapper)
+    // Heartbeat-based shutdown: exit when browser window is closed
     if (!process.argv.includes("--no-open")) {
-      let lastSeen = Date.now();
-      const handler = ui.listeners("request")[0];
-      ui.removeAllListeners("request");
-      ui.on("request", (req, res) => { lastSeen = Date.now(); handler(req, res); });
+      // Give window 10s to load before we start watching heartbeat
+      setTimeout(() => { lastHeartbeat = Date.now(); }, 10000);
       setInterval(() => {
-        if (Date.now() - lastSeen > 30000) {
-          log("[Bridge] No activity, shutting down");
+        if (lastHeartbeat > 0 && Date.now() - lastHeartbeat > 5000) {
+          log("[Bridge] Window closed, shutting down");
           if (bridgeEnabled) restoreCodexConfig();
           process.exit(0);
         }
-      }, 10000);
+      }, 1000);
     }
   });
 });

@@ -179,6 +179,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
   else show('idle');
 });
 setInterval(()=>fetch('/api/status').catch(()=>{}),10000);
+setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 </script>
 </body>
 </html>
