@@ -3,7 +3,7 @@ set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
 BINARY="codex-copilot-bridge"
-VERSION="1.4.0"
+VERSION="1.3.1"
 
 echo "==> Building Windows binary..."
 mkdir -p dist

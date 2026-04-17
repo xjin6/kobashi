@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."   # always run from repo root
 
 APP_NAME="Codex Copilot Bridge"
 BUNDLE_ID="com.xjin6.codex-copilot-bridge"
-VERSION="1.4.0"
+VERSION="1.3.1"
 BINARY="codex-copilot-bridge"
 
 echo "==> Building Node.js binaries..."

@@ -1,6 +1,6 @@
 {
   "name": "codex-copilot-bridge",
-  "version": "1.4.0",
+  "version": "1.3.1",
   "description": "Route OpenAI Codex through your GitHub Copilot subscription",
   "main": "index.js",
   "bin": "index.js",
