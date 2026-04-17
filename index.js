@@ -1,5 +1,7 @@
 const http = require("http");
 const https = require("https");
+const net = require("net");
+const tls = require("tls");
 const fs = require("fs");
 const path = require("path");
 const { execSync, spawn } = require("child_process");
@@ -66,6 +68,71 @@ const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const COPILOT_API = "api.githubcopilot.com";
 const PROXY_PORT = 18921;
 const UI_PORT = 18922;
+
+// ─── System proxy detection ────────────────────────────────────────────────
+// Detect OS-level HTTP proxy. If present, route upstream Copilot requests
+// through it so users behind VPNs (Clash/Surge in system-proxy mode) work
+// without touching global env vars. Only Bridge's own outbound traffic is
+// affected — other apps are untouched.
+function detectSystemProxy() {
+  const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+  if (envProxy) {
+    try { return new URL(envProxy); } catch {}
+  }
+  try {
+    if (process.platform === "darwin") {
+      const out = execSync("scutil --proxy", { stdio: ["ignore", "pipe", "ignore"] }).toString();
+      const enabled = /HTTPSEnable\s*:\s*1/.test(out) || /HTTPEnable\s*:\s*1/.test(out);
+      if (!enabled) return null;
+      const host = (out.match(/HTTPSProxy\s*:\s*([^\s]+)/) || out.match(/HTTPProxy\s*:\s*([^\s]+)/) || [])[1];
+      const port = (out.match(/HTTPSPort\s*:\s*(\d+)/) || out.match(/HTTPPort\s*:\s*(\d+)/) || [])[1];
+      if (host && port) return new URL(`http://${host}:${port}`);
+    } else if (process.platform === "win32") {
+      const out = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable /v ProxyServer', { stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).toString();
+      if (!/ProxyEnable\s+REG_DWORD\s+0x1/.test(out)) return null;
+      const server = (out.match(/ProxyServer\s+REG_SZ\s+(\S+)/) || [])[1];
+      if (!server) return null;
+      const hp = server.includes("=") ? (server.split(";").find(s => s.startsWith("https=") || s.startsWith("http=")) || "").split("=")[1] : server;
+      if (hp) return new URL(`http://${hp}`);
+    }
+  } catch {}
+  return null;
+}
+
+// Build a CONNECT tunnel through an HTTP proxy, returning a TLS socket to the origin.
+function connectViaProxy(proxyUrl, targetHost, targetPort) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(Number(proxyUrl.port) || 80, proxyUrl.hostname, () => {
+      const auth = proxyUrl.username ? `Proxy-Authorization: Basic ${Buffer.from(decodeURIComponent(proxyUrl.username) + ":" + decodeURIComponent(proxyUrl.password || "")).toString("base64")}\r\n` : "";
+      sock.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}\r\n`);
+    });
+    let buf = "";
+    const onData = (chunk) => {
+      buf += chunk.toString();
+      if (buf.includes("\r\n\r\n")) {
+        sock.removeListener("data", onData);
+        if (!/^HTTP\/1\.[01] 200/i.test(buf)) { sock.destroy(); return reject(new Error(`Proxy CONNECT failed: ${buf.split("\r\n")[0]}`)); }
+        const tlsSock = tls.connect({ socket: sock, servername: targetHost });
+        tlsSock.on("secureConnect", () => resolve(tlsSock));
+        tlsSock.on("error", reject);
+      }
+    };
+    sock.on("data", onData);
+    sock.on("error", reject);
+  });
+}
+
+// Issue an HTTPS request, tunneling through the system proxy if one is set.
+// Returns a Promise<ClientRequest> because proxy CONNECT is async.
+async function upstreamHttpsRequest(options, onResponse) {
+  const proxyUrl = detectSystemProxy();
+  if (!proxyUrl) {
+    return https.request(options, onResponse);
+  }
+  dbg(`[Bridge] Routing via system proxy ${proxyUrl.hostname}:${proxyUrl.port}`);
+  const socket = await connectViaProxy(proxyUrl, options.hostname, 443);
+  return https.request({ ...options, createConnection: () => socket }, onResponse);
+}
 
 // ─── Assets ────────────────────────────────────────────────────────────────
 let SEA = null;
@@ -195,19 +262,21 @@ let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, bridgeEnabled = false;
 
 function httpsRequest(options, body) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      const chunks = [];
-      res.on("data", c => chunks.push(c));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString();
-        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
-        catch { resolve({ status: res.statusCode, body: raw }); }
+  return new Promise(async (resolve, reject) => {
+    try {
+      const req = await upstreamHttpsRequest(options, (res) => {
+        const chunks = [];
+        res.on("data", c => chunks.push(c));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString();
+          try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+          catch { resolve({ status: res.statusCode, body: raw }); }
+        });
       });
-    });
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
+      req.on("error", reject);
+      if (body) req.write(body);
+      req.end();
+    } catch (e) { reject(e); }
   });
 }
 
@@ -241,7 +310,7 @@ const proxy = http.createServer(async (req, res) => {
   try {
     const token = await ensureCopilotToken();
     const p = req.url.startsWith("/v1") ? req.url : `/v1${req.url}`;
-    const upstream = https.request({
+    const upstream = await upstreamHttpsRequest({
       hostname: COPILOT_API, path: p, method: req.method,
       headers: {
         "Content-Type": "application/json", Authorization: `Bearer ${token}`,
@@ -254,10 +323,10 @@ const proxy = http.createServer(async (req, res) => {
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
     });
-    upstream.on("error", e => { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); });
+    upstream.on("error", e => { try { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); } catch {} });
     if (bodyBuf.length) upstream.write(bodyBuf);
     upstream.end();
-  } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+  } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
 });
 
 // ─── UI server ─────────────────────────────────────────────────────────────

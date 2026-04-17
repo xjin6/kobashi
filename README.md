@@ -36,6 +36,7 @@ The bridge intercepts Codex API requests on `localhost:18921` and forwards them 
 - One-click GitHub OAuth device flow authentication
 - Automatic Copilot token acquisition and refresh
 - Auto-injects Codex config (`~/.codex/auth.json` and `config.toml`)
+- Auto-detects system HTTP(S) proxy — routes only Bridge's upstream traffic through it, leaving other apps untouched
 - Backs up and restores your original Codex config on disconnect
 - Light/dark mode with system preference detection
 - Single portable executable, no installation needed

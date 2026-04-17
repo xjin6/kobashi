@@ -34,9 +34,26 @@ console.log(`Payload size:     ${buf.length - peEnd}`);
 const payload = buf.slice(peEnd);
 
 // Run rcedit on the exe
-const rcedit = path.join(process.env.APPDATA || "", "npm/node_modules/rcedit/bin/rcedit-x64.exe");
-console.log("Running rcedit...");
-execFileSync(rcedit, [exe, "--set-icon", ico]);
+const { execSync } = require("child_process");
+const npmRoot = execSync("npm root -g").toString().trim();
+const rceditCandidates = [
+  path.join(npmRoot, "rcedit/bin/rcedit-x64.exe"),
+  path.join(process.env.APPDATA || "", "npm/node_modules/rcedit/bin/rcedit-x64.exe"),
+];
+const rcedit = rceditCandidates.find(p => fs.existsSync(p));
+if (!rcedit) { console.error("rcedit not found. Install with: npm install -g rcedit"); process.exit(1); }
+console.log(`Running rcedit from ${rcedit}...`);
+// On macOS/Linux, rcedit-x64.exe is a Windows binary; run via wine if available.
+if (process.platform !== "win32") {
+  try {
+    execFileSync("wine", [rcedit, exe, "--set-icon", ico], { stdio: "inherit" });
+  } catch (e) {
+    console.error("wine not available; skipping icon embed. Install wine or build on Windows for custom icon.");
+    process.exit(0);
+  }
+} else {
+  execFileSync(rcedit, [exe, "--set-icon", ico]);
+}
 
 // Read modified exe and re-append payload
 const modified = fs.readFileSync(exe);
