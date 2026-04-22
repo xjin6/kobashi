@@ -43,14 +43,6 @@ The bridge intercepts API requests on localhost and forwards them to the GitHub 
 - Light/dark mode with system preference detection
 - Single portable executable, no installation needed
 
-## Ports
-
-| Port  | Purpose           |
-|-------|-------------------|
-| 18921 | Codex proxy       |
-| 18922 | Bridge UI         |
-| 18923 | Claude proxy      |
-
 ## License
 
 MIT

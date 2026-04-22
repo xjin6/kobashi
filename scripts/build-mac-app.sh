@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."   # always run from repo root
 
 APP_NAME="Kobashi"
 BUNDLE_ID="com.xjin6.kobashi"
-VERSION="1.5.0"
+VERSION="1.5.1"
 BINARY="kobashi"
 
 echo "==> Building Node.js binaries..."
@@ -26,9 +26,33 @@ lipo -create "dist/${BINARY}-swift-arm64" "dist/${BINARY}-swift-x64" \
 rm "dist/${BINARY}-swift-arm64" "dist/${BINARY}-swift-x64"
 
 echo "==> Generating ICNS icon..."
-# Add ~15% padding so the icon matches standard macOS Dock visual weight
-sips -z 880 880 assets/kobashi-icon.png --out /tmp/kobashi-inner.png > /dev/null
-sips -p 1024 1024 /tmp/kobashi-inner.png --out /tmp/kobashi-padded.png > /dev/null
+# Follow Apple's Dock icon template: 1024x1024 canvas with ~100px transparent
+# padding on every side, so the white squircle itself is 824x824 (matches the
+# visual size of Edge / Teams / VS Code). Corner radius ~185 on the squircle.
+python3 - <<'PY'
+from PIL import Image, ImageDraw
+SRC = "assets/kobashi-icon.png"
+OUT = "/tmp/kobashi-padded.png"
+CANVAS   = 1024
+SQUIRCLE = 824          # white rounded-square size (Apple grid)
+RADIUS   = 185          # matches Apple's continuous-corner squircle
+ART      = 660          # artwork fits inside squircle with inner breathing room
+X_NUDGE  = -24          # shift artwork slightly left for optical centering
+pad = (CANVAS - SQUIRCLE) // 2
+canvas = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+bg = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+ImageDraw.Draw(bg).rounded_rectangle(
+    [(pad, pad), (pad + SQUIRCLE - 1, pad + SQUIRCLE - 1)],
+    RADIUS, fill=(255, 255, 255, 255),
+)
+canvas.alpha_composite(bg)
+src = Image.open(SRC).convert("RGBA")
+src.thumbnail((ART, ART), Image.LANCZOS)
+x = (CANVAS - src.width)  // 2 + X_NUDGE
+y = (CANVAS - src.height) // 2
+canvas.alpha_composite(src, (x, y))
+canvas.save(OUT)
+PY
 ICON_SRC="/tmp/kobashi-padded.png"
 ICONSET="dist/AppIcon.iconset"
 rm -rf "${ICONSET}"
@@ -39,7 +63,7 @@ for size in 16 32 128 256 512; do
   sips -z $((size*2)) $((size*2)) "${ICON_SRC}" \
     --out "${ICONSET}/icon_${size}x${size}@2x.png"        > /dev/null
 done
-rm -f /tmp/kobashi-inner.png /tmp/kobashi-padded.png
+rm -f /tmp/kobashi-padded.png
 iconutil -c icns "${ICONSET}" -o "dist/AppIcon.icns"
 rm -rf "${ICONSET}"
 

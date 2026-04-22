@@ -3,7 +3,7 @@ set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
 BINARY="kobashi"
-VERSION="1.5.0"
+VERSION="1.5.1"
 
 echo "==> Building Windows binary..."
 mkdir -p dist

@@ -1,8 +1,8 @@
 // Sets icon on a pkg-built exe without corrupting the pkg payload.
+// Uses resedit (pure JS) so this works on macOS/Linux without wine.
 // Strategy: extract the pkg payload appended after PE sections,
-// run rcedit (which only modifies PE), then re-append the payload.
+// run resedit to inject icon resources, then re-append the payload.
 const fs = require("fs");
-const { execFileSync } = require("child_process");
 const path = require("path");
 
 const exe = process.argv[2];
@@ -11,75 +11,63 @@ if (!exe || !ico) { console.error("Usage: node set-icon.js <exe> <ico>"); proces
 
 const buf = fs.readFileSync(exe);
 
-// Parse PE to find end of PE image (last section's raw end)
-const peOff = buf.readUInt32LE(0x3C);
-const numSections = buf.readUInt16LE(peOff + 6);
-const optHeaderSize = buf.readUInt16LE(peOff + 20);
-const sectionTableOff = peOff + 24 + optHeaderSize;
-
-let peEnd = 0;
-for (let i = 0; i < numSections; i++) {
-  const off = sectionTableOff + i * 40;
-  const rawSize = buf.readUInt32LE(off + 16);
-  const rawPtr = buf.readUInt32LE(off + 20);
-  const sectionEnd = rawPtr + rawSize;
-  if (sectionEnd > peEnd) peEnd = sectionEnd;
+function peEndOf(b) {
+  const peOff = b.readUInt32LE(0x3C);
+  const numSections = b.readUInt16LE(peOff + 6);
+  const optHeaderSize = b.readUInt16LE(peOff + 20);
+  const sectionTableOff = peOff + 24 + optHeaderSize;
+  let end = 0;
+  for (let i = 0; i < numSections; i++) {
+    const off = sectionTableOff + i * 40;
+    const rawSize = b.readUInt32LE(off + 16);
+    const rawPtr = b.readUInt32LE(off + 20);
+    const sectionEnd = rawPtr + rawSize;
+    if (sectionEnd > end) end = sectionEnd;
+  }
+  return end;
 }
 
+const peEnd = peEndOf(buf);
 console.log(`PE image ends at: ${peEnd} (0x${peEnd.toString(16)})`);
 console.log(`Total file size:  ${buf.length}`);
 console.log(`Payload size:     ${buf.length - peEnd}`);
 
-// Extract payload (everything after PE image)
+// Extract pkg payload appended after PE image.
 const payload = buf.slice(peEnd);
+const peOnly  = buf.slice(0, peEnd);
 
-// Run rcedit on the exe
-const { execSync } = require("child_process");
-const npmRoot = execSync("npm root -g").toString().trim();
-const rceditCandidates = [
-  path.join(npmRoot, "rcedit/bin/rcedit-x64.exe"),
-  path.join(process.env.APPDATA || "", "npm/node_modules/rcedit/bin/rcedit-x64.exe"),
-];
-const rcedit = rceditCandidates.find(p => fs.existsSync(p));
-if (!rcedit) { console.error("rcedit not found. Install with: npm install -g rcedit"); process.exit(1); }
-console.log(`Running rcedit from ${rcedit}...`);
-// On macOS/Linux, rcedit-x64.exe is a Windows binary; run via wine if available.
-if (process.platform !== "win32") {
-  try {
-    execFileSync("wine", [rcedit, exe, "--set-icon", ico], { stdio: "inherit" });
-  } catch (e) {
-    console.error("wine not available; skipping icon embed. Install wine or build on Windows for custom icon.");
-    process.exit(0);
-  }
-} else {
-  execFileSync(rcedit, [exe, "--set-icon", ico]);
-}
+// Use resedit to inject icon resources into the PE portion.
+const ResEdit    = require("resedit");
+const PELibrary  = require("pe-library");
 
-// Read modified exe and re-append payload
-const modified = fs.readFileSync(exe);
-// Find new PE end
-const newBuf = Buffer.from(modified);
-const newPeOff = newBuf.readUInt32LE(0x3C);
-const newNumSections = newBuf.readUInt16LE(newPeOff + 6);
-const newOptHeaderSize = newBuf.readUInt16LE(newPeOff + 20);
-const newSectionTableOff = newPeOff + 24 + newOptHeaderSize;
+const exeTmp = exe + ".pe-only";
+fs.writeFileSync(exeTmp, peOnly);
 
-let newPeEnd = 0;
-for (let i = 0; i < newNumSections; i++) {
-  const off = newSectionTableOff + i * 40;
-  const rawSize = newBuf.readUInt32LE(off + 16);
-  const rawPtr = newBuf.readUInt32LE(off + 20);
-  const sectionEnd = rawPtr + rawSize;
-  if (sectionEnd > newPeEnd) newPeEnd = sectionEnd;
-}
+const exeBin   = PELibrary.NtExecutable.from(fs.readFileSync(exeTmp));
+const resource = PELibrary.NtExecutableResource.from(exeBin);
 
+const iconFile = ResEdit.Data.IconFile.from(fs.readFileSync(ico));
+ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+  resource.entries,
+  1,                    // resource id
+  1033,                  // language (en-US, matches rcedit default)
+  iconFile.icons.map(i => i.data),
+);
+
+resource.outputResource(exeBin);
+const newPeBuf = Buffer.from(exeBin.generate());
+fs.unlinkSync(exeTmp);
+
+console.log(`New PE size:      ${newPeBuf.length}`);
+
+// Re-append payload at original offset. Pad if PE shrank so the payload's
+// absolute offset matches what pkg stamped into the binary.
+const newPeEnd = peEndOf(newPeBuf);
 console.log(`New PE image ends at: ${newPeEnd}`);
-
-// Pad modified PE to original PE end offset, then append payload
-// This preserves the absolute offset where pkg expects to find its data
-const pePart = newBuf.slice(0, newPeEnd);
 const padding = Buffer.alloc(Math.max(0, peEnd - newPeEnd), 0);
 console.log(`Padding: ${padding.length} bytes to match original offset ${peEnd}`);
-const final = Buffer.concat([pePart, padding, payload]);
+const pePart = newPeBuf.slice(0, newPeEnd);
+const final  = Buffer.concat([pePart, padding, payload]);
+
 fs.writeFileSync(exe, final);
 console.log(`Final size: ${final.length} (original: ${buf.length}) — icon set, payload restored.`);

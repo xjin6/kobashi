@@ -1,6 +1,6 @@
 {
   "name": "kobashi",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Route Claude Code and OpenAI Codex through your GitHub Copilot subscription",
   "main": "index.js",
   "bin": "index.js",
