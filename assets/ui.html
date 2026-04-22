@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<link rel="icon" type="image/png" href="/favicon.png"/>
+<link rel="icon" type="image/svg+xml" href="/kobashi.svg?v=4"/>
 <link rel="manifest" href="/manifest.json"/>
-<title>Codex Copilot Bridge</title>
+<title>Kobashi</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  :root{--bg:#0a0c10;--fg:#e6edf3;--muted:#8b949e;--card-bg:rgba(22,27,34,.85);--card-border:rgba(48,54,61,.6);--card-shadow:0 24px 48px rgba(0,0,0,.4),0 0 0 1px rgba(48,54,61,.3);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(88,166,255,.15),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(63,185,80,.12),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(136,103,255,.12),transparent 50%);--accent1:#58a6ff;--accent2:#a371f7;--btn-bg:rgba(33,38,45,.8);--btn-border:rgba(48,54,61,.8);--btn-hover-bg:rgba(48,54,61,.8);--btn-hover-border:rgba(88,166,255,.3);--btn-hover-glow:0 0 20px rgba(88,166,255,.1);--code-bg:rgba(13,17,23,.8);--code-border:rgba(48,54,61,.6);--panel-bg:rgba(33,38,45,.85);--panel-border:rgba(48,54,61,.5);--toggle-bg:#21262d;--toggle-border:#30363d;--badge-bg:rgba(88,166,255,.1);--badge-border:rgba(88,166,255,.2);--badge-color:#58a6ff;--disconnect-color:#f85149;--disconnect-border:rgba(248,81,73,.3);--env-bg:rgba(33,38,45,.85);--env-border:rgba(48,54,61,.5);--env-key:#ff7b72;--env-val:#a5d6ff;--dot-gray:#484f58;--spinner-bg:rgba(48,54,61,.8);--logo-color:#58a6ff;--toggle-on-bg:#1f6feb;--toggle-on-border:#1f6feb;--toggle-on-shadow:rgba(31,111,235,.25);--dot-active:#58a6ff;--dot-active-glow:rgba(88,166,255,.35);--copied-color:#58a6ff}
-  [data-theme="light"]{--bg:#f0f4f0;--fg:#1a2e1a;--muted:#5a6e5a;--card-bg:rgba(255,255,255,.9);--card-border:rgba(46,139,87,.15);--card-shadow:0 24px 48px rgba(0,0,0,.08),0 0 0 1px rgba(46,139,87,.1);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(34,197,94,.1),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(16,185,129,.08),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(74,222,128,.06),transparent 50%);--accent1:#15803d;--accent2:#0891b2;--btn-bg:rgba(255,255,255,.9);--btn-border:rgba(46,139,87,.25);--btn-hover-bg:rgba(240,253,244,.9);--btn-hover-border:rgba(34,197,94,.5);--btn-hover-glow:0 0 20px rgba(34,197,94,.1);--code-bg:rgba(240,253,244,.8);--code-border:rgba(46,139,87,.15);--panel-bg:rgba(240,253,244,.6);--panel-border:rgba(46,139,87,.12);--toggle-bg:#d1d5db;--toggle-border:#9ca3af;--badge-bg:rgba(34,197,94,.1);--badge-border:rgba(34,197,94,.25);--badge-color:#16a34a;--disconnect-color:#dc2626;--disconnect-border:rgba(220,38,38,.3);--env-bg:rgba(240,253,244,.8);--env-border:rgba(46,139,87,.12);--env-key:#b91c1c;--env-val:#1e40af;--dot-gray:#9ca3af;--spinner-bg:rgba(46,139,87,.2);--logo-color:#16a34a;--toggle-on-bg:#238636;--toggle-on-border:#238636;--toggle-on-shadow:rgba(35,134,54,.3);--dot-active:#3fb950;--dot-active-glow:rgba(63,185,80,.4);--copied-color:#3fb950}
+  :root{--bg:#0a0c10;--fg:#e6edf3;--muted:#8b949e;--card-bg:rgba(22,27,34,.85);--card-border:rgba(48,54,61,.6);--card-shadow:0 24px 48px rgba(0,0,0,.4),0 0 0 1px rgba(48,54,61,.3);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(88,166,255,.15),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(63,185,80,.12),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(136,103,255,.12),transparent 50%);--accent1:#58a6ff;--accent2:#a371f7;--btn-bg:rgba(33,38,45,.8);--btn-border:rgba(48,54,61,.8);--btn-hover-bg:rgba(48,54,61,.8);--btn-hover-border:rgba(88,166,255,.3);--btn-hover-glow:0 0 20px rgba(88,166,255,.1);--code-bg:rgba(13,17,23,.8);--code-border:rgba(48,54,61,.6);--panel-bg:rgba(33,38,45,.85);--panel-border:rgba(48,54,61,.5);--toggle-bg:#21262d;--toggle-border:#30363d;--badge-bg:rgba(88,166,255,.1);--badge-border:rgba(88,166,255,.2);--badge-color:#58a6ff;--disconnect-color:#f85149;--disconnect-border:rgba(248,81,73,.3);--env-bg:rgba(33,38,45,.85);--env-border:rgba(48,54,61,.5);--env-key:#ff7b72;--env-val:#a5d6ff;--dot-gray:#484f58;--spinner-bg:rgba(48,54,61,.8);--logo-color:#58a6ff;--toggle-on-bg:#1f6feb;--toggle-on-border:#1f6feb;--toggle-on-shadow:rgba(31,111,235,.25);--dot-active:#58a6ff;--dot-active-glow:rgba(88,166,255,.35);--copied-color:#58a6ff;--tile-bg:rgba(60,66,74,.55);--tile-border:rgba(82,88,96,.5)}
+  [data-theme="light"]{--bg:#f0f4f0;--fg:#1a2e1a;--muted:#5a6e5a;--card-bg:rgba(255,255,255,.9);--card-border:rgba(46,139,87,.15);--card-shadow:0 24px 48px rgba(0,0,0,.08),0 0 0 1px rgba(46,139,87,.1);--bg-glow:radial-gradient(ellipse at 20% 50%,rgba(34,197,94,.1),transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(16,185,129,.08),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(74,222,128,.06),transparent 50%);--accent1:#15803d;--accent2:#0891b2;--btn-bg:rgba(255,255,255,.9);--btn-border:rgba(46,139,87,.25);--btn-hover-bg:rgba(240,253,244,.9);--btn-hover-border:rgba(34,197,94,.5);--btn-hover-glow:0 0 20px rgba(34,197,94,.1);--code-bg:rgba(240,253,244,.8);--code-border:rgba(46,139,87,.15);--panel-bg:rgba(240,253,244,.6);--panel-border:rgba(46,139,87,.12);--toggle-bg:#d1d5db;--toggle-border:#9ca3af;--badge-bg:rgba(34,197,94,.1);--badge-border:rgba(34,197,94,.25);--badge-color:#16a34a;--disconnect-color:#dc2626;--disconnect-border:rgba(220,38,38,.3);--env-bg:rgba(240,253,244,.8);--env-border:rgba(46,139,87,.12);--env-key:#b91c1c;--env-val:#1e40af;--dot-gray:#9ca3af;--spinner-bg:rgba(46,139,87,.2);--logo-color:#16a34a;--toggle-on-bg:#238636;--toggle-on-border:#238636;--toggle-on-shadow:rgba(35,134,54,.3);--dot-active:#3fb950;--dot-active-glow:rgba(63,185,80,.4);--copied-color:#3fb950;--tile-bg:rgba(255,255,255,.9);--tile-border:rgba(46,139,87,.15)}
   html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column;overflow:hidden;transition:background .3s,color .3s}
   .bg{position:fixed;inset:0;z-index:0;background:var(--bg-glow)}
-  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:24px 32px 0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;transition:background .3s,color .3s}
+  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:24px 32px 0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;scrollbar-gutter:stable;transition:background .3s,color .3s}
   .logo{display:flex;align-items:center;gap:10px;margin-bottom:6px}
   .logo svg{width:28px;height:28px;color:var(--logo-color)}
   h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent1),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -35,7 +35,7 @@
   .panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:18px;margin-top:16px;transition:all .3s}
   .panel-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .panel-row:last-child{margin-bottom:0}
-  .panel-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .panel-label{font-size:12px;color:var(--muted)}
   .panel-value{font-size:13px;color:var(--fg);font-weight:500}
   .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
   .dot-green{background:var(--dot-active);box-shadow:0 0 8px var(--dot-active-glow)}
@@ -51,7 +51,7 @@
   .env-box{background:var(--env-bg);border:1px solid var(--env-border);border-radius:8px;padding:12px 14px;font-family:"SF Mono",Consolas,monospace;font-size:11px;line-height:2;color:var(--muted);margin-top:8px;transition:all .3s}
   .env-box .key{color:var(--env-key)}
   .env-box .val{color:var(--env-val)}
-  .section-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:20px;margin-bottom:8px}
+  .section-title{font-size:11px;color:var(--muted);margin-top:20px;margin-bottom:8px}
   .fade-in{animation:fadeIn .4s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   #view-idle,#view-waiting,#view-connected{display:none}
@@ -65,6 +65,18 @@
   .footer a:hover{opacity:.8;text-decoration:underline}
   .theme-btn{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:8px;border:1px solid var(--card-border);background:var(--btn-bg);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;z-index:2}
   .theme-btn:hover{color:var(--fg);border-color:var(--btn-hover-border)}
+  .bridge-logo{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tile-bg);border:1px solid var(--tile-border);overflow:hidden}
+  .bridge-logo svg{width:20px;height:20px}
+  .bridge-logo img{width:24px;height:24px;object-fit:contain}
+  .bridge-logo.claude{color:#d97757}
+  .panel-row-left{display:flex;align-items:center;gap:12px}
+  details.panel-config{margin-top:14px;border-top:1px solid var(--panel-border);margin-left:-18px;margin-right:-18px;margin-bottom:-18px;transition:all .3s}
+  details.panel-config > summary{list-style:none;cursor:pointer;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);user-select:none}
+  details.panel-config > summary::-webkit-details-marker{display:none}
+  details.panel-config > summary .chev{transition:transform .2s;display:inline-flex}
+  details.panel-config[open] > summary .chev{transform:rotate(90deg)}
+  details.panel-config > summary:hover{color:var(--fg)}
+  details.panel-config .env-box{margin:0;border:none;border-top:1px solid var(--panel-border);border-radius:0 0 12px 12px;background:var(--code-bg)}
 </style>
 </head>
 <body>
@@ -72,10 +84,21 @@
 <div class="card">
   <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode"><svg id="theme-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"></svg></button>
   <div class="logo">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-    <h1>Codex Copilot Bridge</h1>
+    <svg viewBox="0 0 512 512" aria-hidden="true">
+      <defs>
+        <linearGradient id="kobashiGrad" gradientUnits="userSpaceOnUse" x1="144" y1="96" x2="368" y2="416">
+          <stop offset="0%" stop-color="var(--accent1)"/>
+          <stop offset="100%" stop-color="var(--accent2)"/>
+        </linearGradient>
+      </defs>
+      <g stroke="url(#kobashiGrad)" stroke-width="60" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M144 256 L368 96"/>
+        <path d="M144 256 L368 416"/>
+      </g>
+    </svg>
+    <h1>Kobashi</h1>
   </div>
-  <p class="sub">Route OpenAI Codex through your GitHub Copilot subscription</p>
+  <p class="sub">Route Claude Code and OpenAI Codex through your GitHub Copilot subscription</p>
 
   <div id="view-idle">
     <button class="btn" onclick="startAuth()">
@@ -107,25 +130,63 @@
 
     <div class="panel" style="margin-top:12px">
       <div class="panel-row">
-        <div>
-          <span class="panel-label">Codex Bridge</span>
-          <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
-            <span class="dot dot-pulse" id="status-dot"></span>
-            <span class="panel-value" id="status-text">Active</span>
+        <div class="panel-row-left">
+          <div class="bridge-logo claude" title="Anthropic Claude">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 0 1-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76.562-.34 1.095-1.064 1.349-.881 1.141-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>
+          </div>
+          <div>
+            <span class="panel-label">Claude Bridge</span>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
+              <span class="dot dot-pulse" id="claude-dot"></span>
+              <span class="panel-value" id="claude-text">Active</span>
+            </div>
           </div>
         </div>
-        <div class="toggle" id="toggle" onclick="toggleBridge()"><div class="knob"></div></div>
+        <div class="toggle" id="claude-toggle" onclick="toggleClaude()"><div class="knob"></div></div>
       </div>
+      <details class="panel-config">
+        <summary>
+          <span>Configuration</span>
+          <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
+        </summary>
+        <div class="env-box">
+          <span class="key">ANTHROPIC_BASE_URL</span>=<span class="val">http://127.0.0.1:{{CLAUDE_PORT}}</span><br/>
+          <span class="key">ANTHROPIC_AUTH_TOKEN</span>=<span class="val">PROXY_MANAGED</span><br/>
+          <span style="color:#484f58">Auto-injected to ~/.claude/settings.json &middot; Restart terminal</span>
+        </div>
+      </details>
     </div>
 
-    <div class="section-title">Codex Configuration</div>
-    <div class="env-box">
-      <span class="key">OPENAI_BASE_URL</span>=<span class="val">http://127.0.0.1:{{PROXY_PORT}}/v1</span><br/>
-      <span class="key">OPENAI_API_KEY</span>=<span class="val">PROXY_MANAGED</span><br/>
-      <span style="color:#484f58">Config auto-injected to ~/.codex/<br/>Restart VS Code to pick up env vars</span>
+    <div class="panel" style="margin-top:12px">
+      <div class="panel-row">
+        <div class="panel-row-left">
+          <div class="bridge-logo codex" title="OpenAI Codex">
+            <img src="/codex-logo.png" alt="Codex"/>
+          </div>
+          <div>
+            <span class="panel-label">Codex Bridge</span>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
+              <span class="dot dot-pulse" id="codex-dot"></span>
+              <span class="panel-value" id="codex-text">Active</span>
+            </div>
+          </div>
+        </div>
+        <div class="toggle" id="codex-toggle" onclick="toggleCodex()"><div class="knob"></div></div>
+      </div>
+      <details class="panel-config">
+        <summary>
+          <span>Configuration</span>
+          <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
+        </summary>
+        <div class="env-box">
+          <span class="key">OPENAI_BASE_URL</span>=<span class="val">http://127.0.0.1:{{PROXY_PORT}}/v1</span><br/>
+          <span class="key">OPENAI_API_KEY</span>=<span class="val">PROXY_MANAGED</span><br/>
+          <span style="color:#484f58">Auto-injected to ~/.codex/ &middot; Restart terminal</span>
+        </div>
+      </details>
     </div>
   </div>
-  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/codex-copilot-bridge'})});return false">xjin6</a> &middot; v1.1.0 &middot; 2026-04-14</div>
+  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.5.0 &middot; 2026-04-22</div>
 </div>
 
 <script>
@@ -140,8 +201,8 @@ function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-th
 (function(){const s=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');applyTheme(s)})();
 let pollTimer=null,pollInterval=5000;
 function show(v){['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');document.getElementById('view-'+v).style.display=v==='connected'?'block':'flex'}
-function updateToggle(on){
-  const t=document.getElementById('toggle'),d=document.getElementById('status-dot'),s=document.getElementById('status-text');
+function setToggle(prefix,on){
+  const t=document.getElementById(prefix+'-toggle'),d=document.getElementById(prefix+'-dot'),s=document.getElementById(prefix+'-text');
   if(on){t.classList.add('on');d.className='dot dot-green dot-pulse';s.textContent='Active'}
   else{t.classList.remove('on');d.className='dot dot-gray';s.textContent='Paused'}
 }
@@ -166,16 +227,19 @@ async function startAuth(){
 async function poll(dc){
   const r=await fetch('/api/poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})});
   const d=await r.json();
-  if(d.access_token){document.getElementById('username').textContent='@'+d.username;updateToggle(true);show('connected');return}
+  if(d.access_token){document.getElementById('username').textContent='@'+d.username;setToggle('codex',true);setToggle('claude',true);show('connected');return}
   if(d.error==='slow_down')pollInterval+=5000;
   pollTimer=setTimeout(()=>poll(dc),pollInterval);
 }
-async function toggleBridge(){
-  const r=await fetch('/api/toggle',{method:'POST'});const d=await r.json();updateToggle(d.bridgeEnabled);
+async function toggleCodex(){
+  const r=await fetch('/api/toggle-codex',{method:'POST'});const d=await r.json();setToggle('codex',d.codexEnabled);
+}
+async function toggleClaude(){
+  const r=await fetch('/api/toggle-claude',{method:'POST'});const d=await r.json();setToggle('claude',d.claudeEnabled);
 }
 async function disconnect(){await fetch('/api/disconnect',{method:'POST'});show('idle')}
 fetch('/api/status').then(r=>r.json()).then(d=>{
-  if(d.connected){document.getElementById('username').textContent='@'+d.username;updateToggle(d.bridgeEnabled);show('connected')}
+  if(d.connected){document.getElementById('username').textContent='@'+d.username;setToggle('codex',d.codexEnabled);setToggle('claude',d.claudeEnabled);show('connected')}
   else show('idle');
 });
 setInterval(()=>fetch('/api/status').catch(()=>{}),10000);

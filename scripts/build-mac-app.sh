@@ -2,10 +2,10 @@
 set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
-APP_NAME="Codex Copilot Bridge"
-BUNDLE_ID="com.xjin6.codex-copilot-bridge"
-VERSION="1.3.1"
-BINARY="codex-copilot-bridge"
+APP_NAME="Kobashi"
+BUNDLE_ID="com.xjin6.kobashi"
+VERSION="1.5.0"
+BINARY="kobashi"
 
 echo "==> Building Node.js binaries..."
 mkdir -p dist
@@ -27,9 +27,9 @@ rm "dist/${BINARY}-swift-arm64" "dist/${BINARY}-swift-x64"
 
 echo "==> Generating ICNS icon..."
 # Add ~15% padding so the icon matches standard macOS Dock visual weight
-sips -z 880 880 assets/codex-color.png --out /tmp/ccb-inner.png > /dev/null
-sips -p 1024 1024 /tmp/ccb-inner.png --out /tmp/ccb-padded.png > /dev/null
-ICON_SRC="/tmp/ccb-padded.png"
+sips -z 880 880 assets/kobashi-icon.png --out /tmp/kobashi-inner.png > /dev/null
+sips -p 1024 1024 /tmp/kobashi-inner.png --out /tmp/kobashi-padded.png > /dev/null
+ICON_SRC="/tmp/kobashi-padded.png"
 ICONSET="dist/AppIcon.iconset"
 rm -rf "${ICONSET}"
 mkdir -p "${ICONSET}"
@@ -39,7 +39,7 @@ for size in 16 32 128 256 512; do
   sips -z $((size*2)) $((size*2)) "${ICON_SRC}" \
     --out "${ICONSET}/icon_${size}x${size}@2x.png"        > /dev/null
 done
-rm -f /tmp/ccb-inner.png /tmp/ccb-padded.png
+rm -f /tmp/kobashi-inner.png /tmp/kobashi-padded.png
 iconutil -c icns "${ICONSET}" -o "dist/AppIcon.icns"
 rm -rf "${ICONSET}"
 

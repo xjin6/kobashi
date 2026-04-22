@@ -2,8 +2,8 @@
 set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
-BINARY="codex-copilot-bridge"
-VERSION="1.3.1"
+BINARY="kobashi"
+VERSION="1.5.0"
 
 echo "==> Building Windows binary..."
 mkdir -p dist
@@ -11,7 +11,7 @@ npx @yao-pkg/pkg . --targets node18-win-x64 --output "dist/${BINARY}.exe"
 
 # Set custom icon (extract pkg payload, rcedit, restore payload)
 echo "==> Setting icon..."
-node scripts/set-icon.js "dist/${BINARY}.exe" assets/bridge-icon.ico
+node scripts/set-icon.js "dist/${BINARY}.exe" assets/kobashi-icon.ico
 
 # Change PE subsystem from Console (3) to GUI (2) — no black window on launch
 echo "==> Setting GUI subsystem (no console window)..."

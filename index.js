@@ -68,6 +68,8 @@ const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const COPILOT_API = "api.githubcopilot.com";
 const PROXY_PORT = 18921;
 const UI_PORT = 18922;
+const CLAUDE_PORT = 18923;
+const CLAUDE_MODEL = "claude-sonnet-4.6";
 
 // ─── System proxy detection ────────────────────────────────────────────────
 // Detect OS-level HTTP proxy. If present, route upstream Copilot requests
@@ -147,7 +149,9 @@ function getAssetText(name) {
   return fs.readFileSync(path.join(__dirname, "assets", name), "utf-8");
 }
 
-const HTML = getAssetText("ui.html").replace("{{PROXY_PORT}}", PROXY_PORT);
+const HTML = getAssetText("ui.html")
+  .replace("{{PROXY_PORT}}", PROXY_PORT)
+  .replace("{{CLAUDE_PORT}}", CLAUDE_PORT);
 
 // ─── Codex config paths ────────────────────────────────────────────────────
 const CODEX_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".codex");
@@ -222,13 +226,61 @@ function restoreCodexConfig() {
   log("[Bridge] Codex config restored");
 }
 
+// ─── Claude config (~/.claude/settings.json) ───────────────────────────────
+const CLAUDE_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".claude");
+const CLAUDE_SETTINGS = path.join(CLAUDE_DIR, "settings.json");
+
+function writeClaudeConfig() {
+  fs.mkdirSync(CLAUDE_DIR, { recursive: true });
+  if (fs.existsSync(CLAUDE_SETTINGS) && !fs.existsSync(CLAUDE_SETTINGS + ".bak"))
+    fs.copyFileSync(CLAUDE_SETTINGS, CLAUDE_SETTINGS + ".bak");
+
+  let settings = {};
+  try {
+    if (fs.existsSync(CLAUDE_SETTINGS + ".bak"))
+      settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS + ".bak", "utf-8"));
+    else if (fs.existsSync(CLAUDE_SETTINGS))
+      settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, "utf-8"));
+  } catch {}
+
+  settings.env = settings.env || {};
+  settings.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${CLAUDE_PORT}`;
+  settings.env.ANTHROPIC_AUTH_TOKEN = "PROXY_MANAGED";
+  // Do NOT force ANTHROPIC_MODEL — let Claude Code pick its own model via /v1/models,
+  // and the bridge will remap it to whatever Copilot actually supports.
+  if (settings.env.ANTHROPIC_MODEL) delete settings.env.ANTHROPIC_MODEL;
+
+  fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(settings, null, 2));
+  log("[Bridge] Claude config injected");
+}
+
+function restoreClaudeConfig() {
+  if (fs.existsSync(CLAUDE_SETTINGS + ".bak")) {
+    fs.copyFileSync(CLAUDE_SETTINGS + ".bak", CLAUDE_SETTINGS);
+    fs.unlinkSync(CLAUDE_SETTINGS + ".bak");
+  } else if (fs.existsSync(CLAUDE_SETTINGS)) {
+    // Remove only the keys we added
+    try {
+      const s = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, "utf-8"));
+      if (s.env) {
+        delete s.env.ANTHROPIC_BASE_URL;
+        delete s.env.ANTHROPIC_AUTH_TOKEN;
+        delete s.env.ANTHROPIC_MODEL;
+        if (Object.keys(s.env).length === 0) delete s.env;
+      }
+      fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(s, null, 2));
+    } catch {}
+  }
+  log("[Bridge] Claude config restored");
+}
+
 // ─── Session persistence ────────────────────────────────────────────────────
 const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, ".codex", "ccb-session.json");
 
 function saveSession() {
   try {
     fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
-    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, bridgeEnabled }, null, 2));
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, codexEnabled, claudeEnabled }, null, 2));
     try { fs.chmodSync(SESSION_FILE, 0o600); } catch {}
   } catch (e) { dbg("[Session] save failed:", e.message); }
 }
@@ -244,14 +296,17 @@ async function loadSession() {
     if (!data.github_token) return false;
     githubToken = data.github_token;
     username = data.username || "";
-    bridgeEnabled = data.bridgeEnabled !== false;
+    // Backward compat: old sessions used single bridgeEnabled flag (Codex only)
+    codexEnabled = data.codexEnabled !== undefined ? data.codexEnabled : (data.bridgeEnabled !== false);
+    claudeEnabled = !!data.claudeEnabled;
     await ensureCopilotToken();
-    if (bridgeEnabled) writeCodexConfig();
+    if (codexEnabled) writeCodexConfig();
+    if (claudeEnabled) writeClaudeConfig();
     log("[Bridge] Session restored for", username);
     return true;
   } catch (e) {
     dbg("[Session] restore failed:", e.message);
-    githubToken = null; username = null; bridgeEnabled = false;
+    githubToken = null; username = null; codexEnabled = false; claudeEnabled = false;
     deleteSession();
     return false;
   }
@@ -259,7 +314,7 @@ async function loadSession() {
 
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
-let username = null, bridgeEnabled = false;
+let username = null, codexEnabled = false, claudeEnabled = false;
 
 function httpsRequest(options, body) {
   return new Promise(async (resolve, reject) => {
@@ -287,8 +342,10 @@ async function ensureCopilotToken() {
     headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2", "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
   });
   if (res.status === 401 || res.status === 403) {
-    githubToken = null; copilotToken = null; username = null; bridgeEnabled = false;
-    deleteSession(); restoreCodexConfig();
+    if (codexEnabled) restoreCodexConfig();
+    if (claudeEnabled) restoreClaudeConfig();
+    githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    deleteSession();
     throw new Error(`GitHub token revoked (${res.status})`);
   }
   if (res.status !== 200) throw new Error(`Copilot token error: ${res.status}`);
@@ -297,11 +354,125 @@ async function ensureCopilotToken() {
   return copilotToken;
 }
 
-// ─── Proxy server ──────────────────────────────────────────────────────────
+// ─── Copilot model list (cached) + Claude model mapping ───────────────────
+let copilotModelsCache = null;
+let copilotModelsCacheAt = 0;
+
+async function getCopilotClaudeModelsRaw() {
+  const now = Date.now();
+  if (copilotModelsCache && now - copilotModelsCacheAt < 300000) return copilotModelsCache;
+  const token = await ensureCopilotToken();
+  const data = await new Promise((resolve, reject) => {
+    const r = https.request({
+      hostname: COPILOT_API, path: "/models", method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
+        "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
+        "X-GitHub-Api-Version": "2025-10-01",
+      },
+    }, res => {
+      const chunks = [];
+      res.on("data", c => chunks.push(c));
+      res.on("end", () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+        catch (e) { reject(e); }
+      });
+    });
+    r.on("error", reject);
+    r.end();
+  });
+  const list = (data.data || []).filter(m => /claude/i.test(m.id || ""));
+  copilotModelsCache = list;
+  copilotModelsCacheAt = now;
+  return list;
+}
+
+// Convert a Copilot model id (e.g. "claude-sonnet-4.6", "claude-opus-4.6-1m") to
+// the id format Claude Code extension uses (dashes, "[1m]" suffix).
+//   claude-sonnet-4.6       → claude-sonnet-4-6
+//   claude-opus-4.6-1m      → claude-opus-4-6[1m]
+//   claude-sonnet-4         → claude-sonnet-4
+function copilotIdToClaudeCodeId(id) {
+  let m = id;
+  const oneM = /-1m$/i.test(m);
+  if (oneM) m = m.replace(/-1m$/i, "");
+  m = m.replace(/(\d+)\.(\d+)/, "$1-$2");
+  return oneM ? `${m}[1m]` : m;
+}
+
+// Build the list of Claude-Code-facing models from Copilot's raw list.
+// For each Copilot model that doesn't already have a 1m sibling, also synthesise
+// a "[1m]" variant so Claude Code's picker sees it (Copilot routes them to the
+// 200k version — we still forward; worst case the caller's big context is truncated).
+async function getClaudeCodeFacingModels() {
+  const raw = await getCopilotClaudeModelsRaw();
+  const byCopilotId = new Map(raw.map(m => [m.id, m]));
+  const out = [];
+  const seen = new Set();
+  for (const m of raw) {
+    const cc = copilotIdToClaudeCodeId(m.id);
+    if (seen.has(cc)) continue;
+    seen.add(cc);
+    out.push({ id: cc, name: m.name || m.id, _copilot: m.id });
+  }
+  // Synthesize [1m] variant for each base that lacks one
+  for (const m of raw) {
+    if (/-1m$/i.test(m.id)) continue;
+    const base = copilotIdToClaudeCodeId(m.id);
+    const variant = `${base}[1m]`;
+    if (seen.has(variant)) continue;
+    // If there is a native -1m Copilot twin, skip (already covered above)
+    if (byCopilotId.has(`${m.id}-1m`)) continue;
+    seen.add(variant);
+    out.push({
+      id: variant,
+      name: `${m.name || m.id} (1M context)`,
+      _copilot: m.id,
+    });
+  }
+  return out;
+}
+
+// Maps a Claude Code–style model id to the Copilot id to send upstream.
+async function mapClaudeModel(requested) {
+  if (!requested) return CLAUDE_MODEL;
+  const list = await getClaudeCodeFacingModels();
+  const hit = list.find(m => m.id === requested);
+  if (hit) return hit._copilot;
+  // Fallback: normalise dash→dot and retry directly against Copilot ids
+  const raw = await getCopilotClaudeModelsRaw();
+  const copilotIds = raw.map(m => m.id);
+  if (copilotIds.includes(requested)) return requested;
+  const stripped = requested.replace(/\[1m\]$/i, "");
+  const dotted = stripped.replace(/^(claude-[a-z]+-\d+)-(\d+)(.*)$/, "$1.$2$3");
+  if (copilotIds.includes(`${dotted}-1m`) && /\[1m\]$/i.test(requested)) return `${dotted}-1m`;
+  if (copilotIds.includes(dotted)) return dotted;
+  // Family best-match
+  const fam = (requested.match(/claude-(sonnet|opus|haiku)/) || [])[1];
+  if (fam) {
+    const family = copilotIds.filter(id => id.includes(fam));
+    if (family.length) {
+      family.sort((a, b) => {
+        const na = (a.match(/(\d+(?:\.\d+)?)/g) || []).map(Number);
+        const nb = (b.match(/(\d+(?:\.\d+)?)/g) || []).map(Number);
+        for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+          const x = na[i] || 0, y = nb[i] || 0;
+          if (x !== y) return y - x;
+        }
+        return 0;
+      });
+      return family[0];
+    }
+  }
+  return CLAUDE_MODEL;
+}
+
+// ─── Codex proxy server (OpenAI passthrough) ──────────────────────────────
 const proxy = http.createServer(async (req, res) => {
-  if (!githubToken || !bridgeEnabled) {
+  if (!githubToken || !codexEnabled) {
     res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Bridge not active" }));
+    res.end(JSON.stringify({ error: "Codex bridge not active" }));
     return;
   }
   const bodyChunks = [];
@@ -329,6 +500,335 @@ const proxy = http.createServer(async (req, res) => {
   } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
 });
 
+// ─── Anthropic ↔ OpenAI translation ────────────────────────────────────────
+function anthropicToOpenAI(req) {
+  const messages = [];
+  if (req.system) {
+    const sysText = typeof req.system === "string"
+      ? req.system
+      : req.system.map(b => b.text || "").join("\n");
+    messages.push({ role: "system", content: sysText });
+  }
+  for (const m of req.messages || []) {
+    if (typeof m.content === "string") {
+      messages.push({ role: m.role, content: m.content });
+      continue;
+    }
+    // Content blocks: text, tool_use, tool_result, image
+    const textParts = [];
+    const toolCalls = [];
+    const toolResults = [];
+    for (const b of m.content || []) {
+      if (b.type === "text") textParts.push(b.text);
+      else if (b.type === "tool_use") {
+        toolCalls.push({
+          id: b.id, type: "function",
+          function: { name: b.name, arguments: JSON.stringify(b.input || {}) }
+        });
+      } else if (b.type === "tool_result") {
+        const rc = typeof b.content === "string"
+          ? b.content
+          : (b.content || []).map(x => x.text || "").join("\n");
+        toolResults.push({ role: "tool", tool_call_id: b.tool_use_id, content: rc });
+      }
+    }
+    if (toolResults.length) { for (const tr of toolResults) messages.push(tr); continue; }
+    const msg = { role: m.role };
+    if (textParts.length) msg.content = textParts.join("\n");
+    if (toolCalls.length) { msg.tool_calls = toolCalls; if (!msg.content) msg.content = null; }
+    messages.push(msg);
+  }
+
+  const out = {
+    model: req.model || CLAUDE_MODEL,
+    messages,
+    stream: !!req.stream,
+  };
+  if (req.max_tokens) out.max_tokens = req.max_tokens;
+  if (req.temperature !== undefined) out.temperature = req.temperature;
+  if (req.top_p !== undefined) out.top_p = req.top_p;
+  if (req.stop_sequences) out.stop = req.stop_sequences;
+  if (req.tools) {
+    out.tools = req.tools.map(t => ({
+      type: "function",
+      function: { name: t.name, description: t.description, parameters: t.input_schema }
+    }));
+  }
+  return out;
+}
+
+function openAIToAnthropicResponse(oai, model) {
+  const choice = (oai.choices || [{}])[0];
+  const msg = choice.message || {};
+  const content = [];
+  if (msg.content) content.push({ type: "text", text: msg.content });
+  if (msg.tool_calls) {
+    for (const tc of msg.tool_calls) {
+      let input = {};
+      try { input = JSON.parse(tc.function.arguments || "{}"); } catch {}
+      content.push({ type: "tool_use", id: tc.id, name: tc.function.name, input });
+    }
+  }
+  const stopReasonMap = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use" };
+  return {
+    id: oai.id || `msg_${Date.now()}`,
+    type: "message",
+    role: "assistant",
+    model,
+    content,
+    stop_reason: stopReasonMap[choice.finish_reason] || "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: (oai.usage && oai.usage.prompt_tokens) || 0,
+      output_tokens: (oai.usage && oai.usage.completion_tokens) || 0,
+    },
+  };
+}
+
+// SSE translator: parses OpenAI delta stream and emits Anthropic events
+function makeStreamTranslator(model, write) {
+  const msgId = `msg_${Date.now()}`;
+  let started = false;
+  let textBlockOpen = false;
+  let toolBlocks = {}; // index -> { id, name, jsonBuf }
+  let inputTokens = 0, outputTokens = 0;
+  let stopReason = "end_turn";
+  let buffer = "";
+
+  function send(event, data) {
+    write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+
+  function ensureStart() {
+    if (started) return;
+    started = true;
+    send("message_start", {
+      type: "message_start",
+      message: {
+        id: msgId, type: "message", role: "assistant", model,
+        content: [], stop_reason: null, stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    });
+  }
+
+  function closeOpenBlocks() {
+    if (textBlockOpen) {
+      send("content_block_stop", { type: "content_block_stop", index: 0 });
+      textBlockOpen = false;
+    }
+    for (const idx of Object.keys(toolBlocks)) {
+      send("content_block_stop", { type: "content_block_stop", index: parseInt(idx) });
+    }
+    toolBlocks = {};
+  }
+
+  return {
+    feed(chunk) {
+      buffer += chunk.toString("utf-8");
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let evt;
+        try { evt = JSON.parse(data); } catch { continue; }
+        ensureStart();
+        const delta = (evt.choices && evt.choices[0] && evt.choices[0].delta) || {};
+        const finish = evt.choices && evt.choices[0] && evt.choices[0].finish_reason;
+        if (evt.usage) {
+          inputTokens = evt.usage.prompt_tokens || inputTokens;
+          outputTokens = evt.usage.completion_tokens || outputTokens;
+        }
+
+        if (delta.content) {
+          if (!textBlockOpen) {
+            send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+            textBlockOpen = true;
+          }
+          send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: delta.content } });
+        }
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = (tc.index !== undefined ? tc.index : 0) + (textBlockOpen ? 1 : 0);
+            if (!toolBlocks[idx]) {
+              toolBlocks[idx] = { id: tc.id || `tool_${idx}`, name: (tc.function && tc.function.name) || "", jsonBuf: "" };
+              send("content_block_start", {
+                type: "content_block_start", index: idx,
+                content_block: { type: "tool_use", id: toolBlocks[idx].id, name: toolBlocks[idx].name, input: {} },
+              });
+            }
+            const block = toolBlocks[idx];
+            if (tc.id) block.id = tc.id;
+            if (tc.function && tc.function.name) block.name = tc.function.name;
+            if (tc.function && tc.function.arguments) {
+              block.jsonBuf += tc.function.arguments;
+              send("content_block_delta", {
+                type: "content_block_delta", index: idx,
+                delta: { type: "input_json_delta", partial_json: tc.function.arguments },
+              });
+            }
+          }
+        }
+        if (finish) {
+          const map = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use" };
+          stopReason = map[finish] || "end_turn";
+        }
+      }
+    },
+    end() {
+      ensureStart();
+      closeOpenBlocks();
+      send("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: outputTokens },
+      });
+      send("message_stop", { type: "message_stop" });
+    },
+  };
+}
+
+// ─── Claude proxy server (Anthropic → OpenAI translation) ─────────────────
+const claudeProxy = http.createServer(async (req, res) => {
+  dbg(`[Claude] ← ${req.method} ${req.url}`);
+  if (!githubToken || !claudeEnabled) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "Claude bridge not active" } }));
+    return;
+  }
+  // POST /v1/messages/count_tokens — best-effort token count (rough estimate)
+  if (req.method === "POST" && req.url.replace(/\?.*$/, "").endsWith("/v1/messages/count_tokens")) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    let body = {};
+    try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch {}
+    let chars = 0;
+    if (typeof body.system === "string") chars += body.system.length;
+    else if (Array.isArray(body.system)) chars += body.system.reduce((n, b) => n + (b.text || "").length, 0);
+    for (const m of body.messages || []) {
+      if (typeof m.content === "string") chars += m.content.length;
+      else for (const b of m.content || []) {
+        if (b.type === "text") chars += (b.text || "").length;
+        else if (b.type === "tool_use") chars += JSON.stringify(b.input || {}).length + (b.name || "").length;
+        else if (b.type === "tool_result") chars += (typeof b.content === "string" ? b.content : JSON.stringify(b.content || "")).length;
+      }
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ input_tokens: Math.max(1, Math.ceil(chars / 4)) }));
+    return;
+  }
+  // GET /v1/models — list available Claude models in Claude-Code-compatible ids
+  if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
+    try {
+      const models = await getClaudeCodeFacingModels();
+      const now = new Date().toISOString();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        data: models.map(m => ({
+          type: "model",
+          id: m.id,
+          display_name: m.name,
+          created_at: now,
+        })),
+        has_more: false,
+        first_id: models[0]?.id || null,
+        last_id: models[models.length - 1]?.id || null,
+      }));
+    } catch (e) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } }));
+    }
+    return;
+  }
+
+  if (!req.url.endsWith("/v1/messages") && req.url !== "/v1/messages" && !req.url.startsWith("/v1/messages?")) {
+    dbg(`[Claude] 404 ${req.method} ${req.url}`);
+    res.writeHead(404); res.end(JSON.stringify({ error: "Not found", path: req.url })); return;
+  }
+
+  const bodyChunks = [];
+  for await (const chunk of req) bodyChunks.push(chunk);
+  const rawBody = Buffer.concat(bodyChunks).toString();
+  dbg(`[Claude] /v1/messages body head: ${rawBody.slice(0, 300)}`);
+  let anthropicReq;
+  try { anthropicReq = JSON.parse(rawBody); }
+  catch (e) { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON" })); return; }
+
+  const isStream = !!anthropicReq.stream;
+  const oaiReq = anthropicToOpenAI(anthropicReq);
+  // Remap the requested model to one Copilot actually exposes
+  try {
+    const mapped = await mapClaudeModel(oaiReq.model);
+    if (mapped !== oaiReq.model) dbg(`[Claude] model ${oaiReq.model} → ${mapped}`);
+    oaiReq.model = mapped;
+  } catch (e) {
+    dbg("[Claude] model list fetch failed, using default:", e.message);
+    oaiReq.model = CLAUDE_MODEL;
+  }
+  const model = oaiReq.model;
+
+  try {
+    const token = await ensureCopilotToken();
+    const upstream = await upstreamHttpsRequest({
+      hostname: COPILOT_API, path: "/chat/completions", method: "POST",
+      headers: {
+        "Content-Type": "application/json", Authorization: `Bearer ${token}`,
+        "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
+        "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
+        "X-GitHub-Api-Version": "2025-10-01",
+        "Accept": isStream ? "text/event-stream" : "application/json",
+      },
+    }, (upstreamRes) => {
+      dbg(`[Claude] upstream model=${model} status=${upstreamRes.statusCode} stream=${isStream}`);
+      if (upstreamRes.statusCode !== 200) {
+        const errChunks = [];
+        upstreamRes.on("data", d => errChunks.push(d));
+        upstreamRes.on("end", () => {
+          const raw = Buffer.concat(errChunks).toString();
+          dbg(`[Claude] upstream error body: ${raw.slice(0, 500)}`);
+          // Translate Copilot/OpenAI error shape → Anthropic error shape so Claude
+          // Code surfaces the real upstream message instead of a generic "model may
+          // not exist" string.
+          let anthErr;
+          try {
+            const j = JSON.parse(raw);
+            const msg = (j.error && (j.error.message || j.message)) || j.message || raw;
+            const typeMap = { 400: "invalid_request_error", 401: "authentication_error", 403: "permission_error", 404: "not_found_error", 429: "rate_limit_error" };
+            anthErr = { type: "error", error: { type: typeMap[upstreamRes.statusCode] || "api_error", message: msg } };
+          } catch {
+            anthErr = { type: "error", error: { type: "api_error", message: raw || `upstream ${upstreamRes.statusCode}` } };
+          }
+          res.writeHead(upstreamRes.statusCode, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(anthErr));
+        });
+        return;
+      }
+      if (isStream) {
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" });
+        const trans = makeStreamTranslator(model, c => res.write(c));
+        upstreamRes.on("data", d => trans.feed(d));
+        upstreamRes.on("end", () => { trans.end(); res.end(); });
+      } else {
+        const chunks = [];
+        upstreamRes.on("data", d => chunks.push(d));
+        upstreamRes.on("end", () => {
+          let oaiResp;
+          try { oaiResp = JSON.parse(Buffer.concat(chunks).toString()); }
+          catch { res.writeHead(502); res.end(JSON.stringify({ error: "Bad upstream JSON" })); return; }
+          const anthResp = openAIToAnthropicResponse(oaiResp, model);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(anthResp));
+        });
+      }
+    });
+    upstream.on("error", e => { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); });
+    upstream.write(JSON.stringify(oaiReq));
+    upstream.end();
+  } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+});
+
 // ─── UI server ─────────────────────────────────────────────────────────────
 const ui = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/start") {
@@ -349,8 +849,10 @@ const ui = http.createServer(async (req, res) => {
       githubToken = r.body.access_token;
       const u = await httpsRequest({ hostname: "api.github.com", path: "/user", method: "GET", headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2" } });
       username = u.body.login || "";
-      bridgeEnabled = true;
+      codexEnabled = true;
+      claudeEnabled = true;
       writeCodexConfig();
+      writeClaudeConfig();
       saveSession();
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ access_token: githubToken, username }));
     } else {
@@ -368,18 +870,27 @@ const ui = http.createServer(async (req, res) => {
   }
   if (req.url === "/api/status") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, bridgeEnabled, proxyPort: PROXY_PORT })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT })); return;
   }
-  if (req.method === "POST" && req.url === "/api/toggle") {
+  if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
-    bridgeEnabled = !bridgeEnabled;
-    if (bridgeEnabled) writeCodexConfig(); else restoreCodexConfig();
+    codexEnabled = !codexEnabled;
+    if (codexEnabled) writeCodexConfig(); else restoreCodexConfig();
     saveSession();
-    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ bridgeEnabled })); return;
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ codexEnabled })); return;
+  }
+  if (req.method === "POST" && req.url === "/api/toggle-claude") {
+    if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
+    claudeEnabled = !claudeEnabled;
+    if (claudeEnabled) writeClaudeConfig(); else restoreClaudeConfig();
+    saveSession();
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ claudeEnabled })); return;
   }
   if (req.method === "POST" && req.url === "/api/disconnect") {
-    githubToken = null; copilotToken = null; username = null; bridgeEnabled = false;
-    deleteSession(); restoreCodexConfig();
+    if (codexEnabled) restoreCodexConfig();
+    if (claudeEnabled) restoreClaudeConfig();
+    githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    deleteSession();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.method === "POST" && req.url === "/api/open-url") {
@@ -391,28 +902,36 @@ const ui = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
-  if (req.url === "/favicon.png" || req.url === "/icon-192.png" || req.url === "/icon-512.png") {
+  if (req.url === "/kobashi.svg" || req.url.startsWith("/kobashi.svg?") || req.url === "/favicon.svg" || req.url.startsWith("/favicon.svg?")) {
+    res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "no-store, max-age=0" });
+    res.end(getAssetText("kobashi.svg")); return;
+  }
+  if (req.url === "/codex-logo.png") {
     res.writeHead(200, { "Content-Type": "image/png" });
-    res.end(getAsset("codex-color.png")); return;
+    res.end(getAsset("codex.png")); return;
   }
   if (req.url === "/favicon.ico") {
     if (process.platform === "win32") {
       res.writeHead(200, { "Content-Type": "image/x-icon" });
-      res.end(getAsset("bridge-icon.ico")); return;
+      res.end(getAsset("kobashi-icon.ico")); return;
     }
-    res.writeHead(200, { "Content-Type": "image/png" });
-    res.end(getAsset("codex-color.png")); return;
+    res.writeHead(200, { "Content-Type": "image/svg+xml" });
+    res.end(getAssetText("kobashi.svg")); return;
   }
   if (req.url === "/manifest.json") {
     res.writeHead(200, { "Content-Type": "application/manifest+json" });
-    res.end(JSON.stringify({ name: "Codex Copilot Bridge", short_name: "Codex Bridge", start_url: "/", display: "standalone", background_color: "#0a0c10", theme_color: "#7c6cf0", icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png" }] }));
+    res.end(JSON.stringify({ name: "Kobashi", short_name: "Kobashi", start_url: "/", display: "standalone", background_color: "#0a0c10", theme_color: "#7c6cf0", icons: [{ src: "/kobashi.svg", sizes: "any", type: "image/svg+xml" }] }));
     return;
   }
   res.writeHead(200, { "Content-Type": "text/html" }); res.end(HTML);
 });
 
-process.on("SIGINT", () => { if (bridgeEnabled) restoreCodexConfig(); process.exit(); });
-process.on("SIGTERM", () => { if (bridgeEnabled) restoreCodexConfig(); process.exit(); });
+function cleanupOnExit() {
+  if (codexEnabled) restoreCodexConfig();
+  if (claudeEnabled) restoreClaudeConfig();
+}
+process.on("SIGINT", () => { cleanupOnExit(); process.exit(); });
+process.on("SIGTERM", () => { cleanupOnExit(); process.exit(); });
 
 let lastHeartbeat = 0;
 
@@ -424,7 +943,7 @@ function focusAppWindow() {
       public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); }
 "@
       Get-Process msedge,chrome,brave -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -like '*Codex Copilot Bridge*' } |
+        Where-Object { $_.MainWindowTitle -like '*Kobashi*' } |
         ForEach-Object { [W]::ShowWindow($_.MainWindowHandle,9); [W]::SetForegroundWindow($_.MainWindowHandle) }
     `;
     try { execSync(`powershell -WindowStyle Hidden -Command "${ps.replace(/\n\s*/g, ' ')}"`, { stdio: "ignore", windowsHide: true }); } catch {}
@@ -442,7 +961,8 @@ const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
   focusReq.end();
 });
 testReq.on("error", () => {
-  proxy.listen(PROXY_PORT, () => log(`[Bridge] Proxy on http://127.0.0.1:${PROXY_PORT}`));
+  proxy.listen(PROXY_PORT, () => log(`[Bridge] Codex proxy on http://127.0.0.1:${PROXY_PORT}`));
+  claudeProxy.listen(CLAUDE_PORT, () => log(`[Bridge] Claude proxy on http://127.0.0.1:${CLAUDE_PORT}`));
   ui.listen(UI_PORT, async () => {
     log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
     await loadSession();
@@ -454,7 +974,7 @@ testReq.on("error", () => {
       setInterval(() => {
         if (lastHeartbeat > 0 && Date.now() - lastHeartbeat > 5000) {
           log("[Bridge] Window closed, shutting down");
-          if (bridgeEnabled) restoreCodexConfig();
+          cleanupOnExit();
           process.exit(0);
         }
       }, 1000);

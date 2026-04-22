@@ -22,7 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let machine = withUnsafePointer(to: &info.machine) {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
         }
-        let binaryName = machine == "arm64" ? "codex-copilot-bridge-arm64" : "codex-copilot-bridge-x64"
+        let binaryName = machine == "arm64" ? "kobashi-arm64" : "kobashi-x64"
         let binaryURL = binaryDir.appendingPathComponent(binaryName)
 
         let process = Process()
@@ -45,7 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false
         )
-        window.title = "Codex Copilot Bridge"
+        window.title = "Kobashi"
         window.center()
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = false
@@ -57,7 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView!.addSubview(webView)
 
         // Loading placeholder
-        let label = NSTextField(labelWithString: "Starting Codex Copilot Bridge…")
+        let label = NSTextField(labelWithString: "Starting Kobashi…")
         label.alignment = .center
         label.textColor = .secondaryLabelColor
         label.frame = NSRect(x: 0, y: 270, width: 440, height: 24)
@@ -88,7 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func showError(_ msg: String) {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Codex Copilot Bridge"
+            alert.messageText = "Kobashi"
             alert.informativeText = msg
             alert.runModal()
             NSApp.terminate(nil)
