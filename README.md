@@ -4,6 +4,11 @@ Route Claude Code and OpenAI Codex through your GitHub Copilot subscription.
 
 Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/claude-code) and [OpenAI Codex](https://openai.com/index/introducing-gpt-5-3-codex/) use your existing GitHub Copilot subscription instead of separate Anthropic or OpenAI API keys.
 
+<p align="center">
+  <img src="assets/light.png#gh-light-mode-only" width="420" alt="Kobashi — light mode">
+  <img src="assets/dark.png#gh-dark-mode-only" width="420" alt="Kobashi — dark mode">
+</p>
+
 ## Download
 
 | Platform | Download | Size |
