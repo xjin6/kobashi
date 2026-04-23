@@ -19,8 +19,14 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 No installation required. No dependencies. Just download and double-click.
 
-> **macOS note:** First launch may be blocked by Gatekeeper — go to **System Settings → Privacy & Security → Open Anyway**.  
-> After connecting, open a **new terminal window** before running `codex` or `claude`.
+> **macOS first launch — "unidentified developer" warning**  
+> Kobashi isn't signed with an Apple Developer ID ($99/yr — not worth it for a free tool), so macOS Gatekeeper blocks the first launch. Drag `Kobashi.app` to `/Applications`, then run this **once** in Terminal to remove the quarantine flag:
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/Kobashi.app
+> ```
+> After that, double-click opens it normally — no warning, no trip through System Settings. (Alternative: right-click the app → **Open** → **Open** in the dialog — works but the `xattr` command is faster and sticks.)
+>
+> **After connecting:** open a **new terminal window** before running `codex` or `claude` so the injected env vars are picked up.
 
 ## How It Works
 
