@@ -230,10 +230,35 @@ function restoreCodexConfig() {
 const CLAUDE_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".claude");
 const CLAUDE_SETTINGS = path.join(CLAUDE_DIR, "settings.json");
 
+// Env vars that other Claude Code config switchers (e.g. cc-switch) may write into
+// settings.json and which silently override Claude Code's model picker. Bridge has
+// to strip these on inject AND on restore — otherwise Claude Code sends a model
+// ID Copilot has never heard of and surfaces "model not supported".
+const CLAUDE_MODEL_ENV_KEYS = [
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_SMALL_FAST_MODEL",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_CUSTOM_HEADERS",
+];
+
 function writeClaudeConfig() {
   fs.mkdirSync(CLAUDE_DIR, { recursive: true });
-  if (fs.existsSync(CLAUDE_SETTINGS) && !fs.existsSync(CLAUDE_SETTINGS + ".bak"))
+  // Refresh .bak whenever the live settings.json is NOT a kobashi-managed state
+  // (i.e. some other tool — cc-switch, the user, etc. — has written to it since
+  // we last touched it). This way, toggling kobashi off correctly restores
+  // whatever was there *just before* kobashi took over, not a stale ancient snapshot.
+  let live = null;
+  try {
+    if (fs.existsSync(CLAUDE_SETTINGS))
+      live = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, "utf-8"));
+  } catch {}
+  const liveIsKobashi = live && live.env && live.env.ANTHROPIC_BASE_URL === `http://127.0.0.1:${CLAUDE_PORT}` && live.env.ANTHROPIC_AUTH_TOKEN === "PROXY_MANAGED";
+  if (fs.existsSync(CLAUDE_SETTINGS) && !liveIsKobashi) {
     fs.copyFileSync(CLAUDE_SETTINGS, CLAUDE_SETTINGS + ".bak");
+  }
 
   let settings = {};
   try {
@@ -246,9 +271,10 @@ function writeClaudeConfig() {
   settings.env = settings.env || {};
   settings.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${CLAUDE_PORT}`;
   settings.env.ANTHROPIC_AUTH_TOKEN = "PROXY_MANAGED";
-  // Do NOT force ANTHROPIC_MODEL — let Claude Code pick its own model via /v1/models,
-  // and the bridge will remap it to whatever Copilot actually supports.
-  if (settings.env.ANTHROPIC_MODEL) delete settings.env.ANTHROPIC_MODEL;
+  // Strip any model-routing env vars that other tools (cc-switch etc.) may have
+  // left behind — Claude Code reads several of these and they silently override
+  // the model picker into IDs that the Copilot backend doesn't expose.
+  for (const k of CLAUDE_MODEL_ENV_KEYS) delete settings.env[k];
 
   fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(settings, null, 2));
   log("[Bridge] Claude config injected");
@@ -265,7 +291,7 @@ function restoreClaudeConfig() {
       if (s.env) {
         delete s.env.ANTHROPIC_BASE_URL;
         delete s.env.ANTHROPIC_AUTH_TOKEN;
-        delete s.env.ANTHROPIC_MODEL;
+        for (const k of CLAUDE_MODEL_ENV_KEYS) delete s.env[k];
         if (Object.keys(s.env).length === 0) delete s.env;
       }
       fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(s, null, 2));
