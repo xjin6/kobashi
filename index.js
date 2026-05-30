@@ -127,26 +127,32 @@ function detectSystemProxy() {
   return null;
 }
 
-// Build a CONNECT tunnel through an HTTP proxy, returning a TLS socket to the origin.
-function connectViaProxy(proxyUrl, targetHost, targetPort) {
+// Build a CONNECT tunnel through an HTTP proxy, returning a TLS socket to the
+// origin. Optional timeoutMs bounds the tunnel+TLS handshake (not the later
+// stream), so a dead proxy fails fast instead of hanging the request.
+function connectViaProxy(proxyUrl, targetHost, targetPort, timeoutMs) {
   return new Promise((resolve, reject) => {
+    let timer = null, settled = false;
     const sock = net.connect(Number(proxyUrl.port) || 80, proxyUrl.hostname, () => {
       const auth = proxyUrl.username ? `Proxy-Authorization: Basic ${Buffer.from(decodeURIComponent(proxyUrl.username) + ":" + decodeURIComponent(proxyUrl.password || "")).toString("base64")}\r\n` : "";
       sock.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}\r\n`);
     });
+    const ok = (v) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); resolve(v); };
+    const no = (e) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); try { sock.destroy(); } catch {} reject(e instanceof Error ? e : new Error(String(e))); };
+    if (timeoutMs) timer = setTimeout(() => no(new Error("proxy timeout")), timeoutMs);
     let buf = "";
     const onData = (chunk) => {
       buf += chunk.toString();
       if (buf.includes("\r\n\r\n")) {
         sock.removeListener("data", onData);
-        if (!/^HTTP\/1\.[01] 200/i.test(buf)) { sock.destroy(); return reject(new Error(`Proxy CONNECT failed: ${buf.split("\r\n")[0]}`)); }
+        if (!/^HTTP\/1\.[01] 200/i.test(buf)) return no(new Error(`Proxy CONNECT failed: ${buf.split("\r\n")[0]}`));
         const tlsSock = tls.connect({ socket: sock, servername: targetHost });
-        tlsSock.on("secureConnect", () => resolve(tlsSock));
-        tlsSock.on("error", reject);
+        tlsSock.on("secureConnect", () => ok(tlsSock));
+        tlsSock.on("error", no);
       }
     };
     sock.on("data", onData);
-    sock.on("error", reject);
+    sock.on("error", no);
   });
 }
 
@@ -155,10 +161,13 @@ function connectViaProxy(proxyUrl, targetHost, targetPort) {
 // optional username/password (RFC 1929) auth. Sends the destination as a host
 // name (ATYP=domain) so DNS is resolved on the proxy side — important when the
 // origin is only reachable through the tunnel.
-function connectViaSocks5(proxyUrl, targetHost, targetPort) {
+function connectViaSocks5(proxyUrl, targetHost, targetPort, timeoutMs) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(Number(proxyUrl.port) || 1080, proxyUrl.hostname);
-    const fail = (e) => { sock.destroy(); reject(e instanceof Error ? e : new Error(String(e))); };
+    let timer = null, settled = false;
+    const fail = (e) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); try { sock.destroy(); } catch {} reject(e instanceof Error ? e : new Error(String(e))); };
+    const done = (v) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); resolve(v); };
+    if (timeoutMs) timer = setTimeout(() => fail(new Error("socks timeout")), timeoutMs);
     sock.on("error", fail);
 
     const user = proxyUrl.username ? decodeURIComponent(proxyUrl.username) : "";
@@ -184,7 +193,7 @@ function connectViaSocks5(proxyUrl, targetHost, targetPort) {
       sock.removeListener("data", onData);
       if (buf.length) sock.unshift(buf);
       const tlsSock = tls.connect({ socket: sock, servername: targetHost });
-      tlsSock.on("secureConnect", () => resolve(tlsSock));
+      tlsSock.on("secureConnect", () => done(tlsSock));
       tlsSock.on("error", fail);
     };
 
@@ -225,15 +234,111 @@ function connectViaSocks5(proxyUrl, targetHost, targetPort) {
   });
 }
 
-// Open a TLS socket to options.hostname:443 through whatever proxy the OS
-// advertises — HTTP CONNECT, SOCKS5, or none (direct / TUN mode).
+// ─── Auto-discovery of local proxies ──────────────────────────────────────
+// When the OS advertises no proxy (detectSystemProxy → null) we first try a
+// direct connection. That covers TUN-mode VPNs and corporate full-tunnel VPNs.
+// But a very common real-world setup is "proxy app is running with a local
+// port open, but the user never ticked 'set as system proxy'": Clash/Surge/
+// v2rayN/Shadowsocks all do this. The OS shows no proxy, and a direct
+// connection to Copilot fails. To make Kobashi zero-config in that case, we
+// probe the well-known local proxy ports and reuse whichever can actually
+// tunnel a verified TLS session to the Copilot API.
+//
+// Probing only happens after a direct attempt fails, so TUN / full-tunnel /
+// system-proxy users never pay for it. The discovered proxy is cached and
+// re-validated lazily; a failure clears the cache so a restarted proxy heals.
+const PROBE_HOST = COPILOT_API; // api.githubcopilot.com — the real upstream
+const PROBE_TIMEOUT = 1500;
+const PROBE_CANDIDATES = [
+  // [scheme, port] — ordered by popularity among GUI proxy clients.
+  ["http", 7890], ["socks5", 7891],   // Clash / Clash Verge / Mihomo
+  ["http", 1087], ["socks5", 1086],   // ShadowsocksX-NG (privoxy + ss-local)
+  ["http", 1089], ["socks5", 1080],   // Tanpopo / generic trojan
+  ["http", 6152], ["socks5", 6153],   // Surge
+  ["http", 8888], ["socks5", 1081],   // Quantumult / misc
+  ["http", 10809], ["socks5", 10808], // v2rayN / v2rayU
+  ["http", 2080], ["socks5", 2080],   // Nekoray / sing-box default
+  ["http", 8889], ["socks5", 7897],   // Clash Verge (newer), misc
+];
+let discoveredProxy = null;       // URL of a proxy verified to reach Copilot
+let discoveredProxyAt = 0;        // timestamp of last successful verification
+
+// Open a verified TLS socket to PROBE_HOST through one candidate. Resolves with
+// the live socket on success (so the probe doubles as the real connection when
+// we want it), or rejects on any failure within PROBE_TIMEOUT.
+function probeCandidate(scheme, port) {
+  const url = new URL(`${scheme}://127.0.0.1:${port}`);
+  return scheme.startsWith("socks")
+    ? connectViaSocks5(url, PROBE_HOST, 443, PROBE_TIMEOUT)
+    : connectViaProxy(url, PROBE_HOST, 443, PROBE_TIMEOUT);
+}
+
+// Find a local proxy that can reach Copilot. Probes all candidates in parallel
+// and returns the URL of the first that completes a verified TLS handshake.
+// Returns null if none work (caller then surfaces the original direct error).
+async function discoverLocalProxy() {
+  // Reuse a recently-verified proxy without re-scanning.
+  if (discoveredProxy && Date.now() - discoveredProxyAt < 60000) return discoveredProxy;
+  const attempts = PROBE_CANDIDATES.map(([scheme, port]) =>
+    probeCandidate(scheme, port).then(
+      (sock) => { try { sock.destroy(); } catch {} return new URL(`${scheme}://127.0.0.1:${port}`); },
+      () => null,
+    ));
+  const results = await Promise.all(attempts);
+  const hit = results.find(Boolean) || null;
+  if (hit) { discoveredProxy = hit; discoveredProxyAt = Date.now(); dbg(`[Bridge] Auto-discovered local proxy ${hit.protocol}//${hit.host}`); }
+  return hit;
+}
+
+// Open a TLS socket to hostname:443 through whatever route works:
+//   1. An OS-advertised proxy (HTTP CONNECT or SOCKS5), if any.
+//   2. A direct connection (covers TUN-mode and full-tunnel VPNs).
+//   3. An auto-discovered local proxy (covers "proxy running but not set as
+//      system proxy"), validated against the Copilot API.
+// Returns a connected TLS socket, or null to mean "use a plain direct request".
 async function connectUpstream(hostname) {
   const proxyUrl = detectSystemProxy();
-  if (!proxyUrl) return null; // direct connection (covers TUN / corporate VPN)
-  const scheme = (proxyUrl.protocol || "").replace(":", "").toLowerCase();
-  dbg(`[Bridge] Routing via ${scheme} proxy ${proxyUrl.hostname}:${proxyUrl.port}`);
-  if (scheme.startsWith("socks")) return connectViaSocks5(proxyUrl, hostname, 443);
-  return connectViaProxy(proxyUrl, hostname, 443);
+  if (proxyUrl) {
+    const scheme = (proxyUrl.protocol || "").replace(":", "").toLowerCase();
+    dbg(`[Bridge] Routing via ${scheme} proxy ${proxyUrl.hostname}:${proxyUrl.port}`);
+    if (scheme.startsWith("socks")) return connectViaSocks5(proxyUrl, hostname, 443, 8000);
+    return connectViaProxy(proxyUrl, hostname, 443, 8000);
+  }
+
+  // No system proxy. Prefer a previously-discovered local proxy if we have one.
+  if (discoveredProxy && Date.now() - discoveredProxyAt < 60000) {
+    const scheme = discoveredProxy.protocol.replace(":", "");
+    try {
+      return scheme.startsWith("socks")
+        ? await connectViaSocks5(discoveredProxy, hostname, 443, 8000)
+        : await connectViaProxy(discoveredProxy, hostname, 443, 8000);
+    } catch { discoveredProxy = null; } // stale → fall through to re-probe
+  }
+
+  // Try a direct connection first (TUN / full-tunnel VPN succeed here).
+  try {
+    const direct = await directTlsConnect(hostname, 2500);
+    return direct;
+  } catch (e) {
+    // Direct failed — maybe a proxy is running but not set as system proxy.
+    const found = await discoverLocalProxy();
+    if (!found) throw e; // nothing works; surface the original direct error
+    const scheme = found.protocol.replace(":", "");
+    return scheme.startsWith("socks")
+      ? connectViaSocks5(found, hostname, 443, 8000)
+      : connectViaProxy(found, hostname, 443, 8000);
+  }
+}
+
+// Plain direct TLS connection with a bounded handshake timeout.
+function directTlsConnect(hostname, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const s = tls.connect({ host: hostname, port: 443, servername: hostname });
+    const timer = timeoutMs ? setTimeout(() => { if (!settled) { settled = true; try { s.destroy(); } catch {} reject(new Error("direct timeout")); } }, timeoutMs) : null;
+    s.on("secureConnect", () => { if (settled) return; settled = true; if (timer) clearTimeout(timer); resolve(s); });
+    s.on("error", (e) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); reject(e); });
+  });
 }
 
 // Issue an HTTPS request, tunneling through the system proxy if one is set.
