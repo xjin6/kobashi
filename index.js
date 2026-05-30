@@ -72,30 +72,56 @@ const CLAUDE_PORT = 18923;
 const CLAUDE_MODEL = "claude-sonnet-4.6";
 
 // ─── System proxy detection ────────────────────────────────────────────────
-// Detect OS-level HTTP proxy. If present, route upstream Copilot requests
-// through it so users behind VPNs (Clash/Surge in system-proxy mode) work
-// without touching global env vars. Only Bridge's own outbound traffic is
-// affected — other apps are untouched.
+// Detect the OS-level proxy and route upstream Copilot requests through it, so
+// users behind a VPN/proxy work without touching global env vars. Only the
+// Bridge's own outbound traffic is affected — other apps are untouched.
+//
+// Supports three deployment styles transparently:
+//   1. HTTP(S) system proxy   (Clash/Surge/privoxy "system proxy" mode)
+//   2. SOCKS5 system proxy    (Shadowsocks, Trojan, Clash SOCKS mode)
+//   3. TUN / virtual-NIC mode (Clash TUN, corporate VPN) → no proxy set,
+//      traffic is captured at the network layer, so a direct connection works.
+//
+// Returned URL's protocol ("http:" vs "socks5:") tells the caller which tunnel
+// to build. A null return means "connect directly" (covers case 3).
 function detectSystemProxy() {
-  const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+  // Env vars win. ALL_PROXY is the conventional home of a SOCKS proxy; the
+  // HTTP(S)_PROXY vars may themselves carry a socks5:// scheme.
+  const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy
+    || process.env.HTTP_PROXY || process.env.http_proxy
+    || process.env.ALL_PROXY || process.env.all_proxy;
   if (envProxy) {
-    try { return new URL(envProxy); } catch {}
+    try { return new URL(/:\/\//.test(envProxy) ? envProxy : `http://${envProxy}`); } catch {}
   }
   try {
     if (process.platform === "darwin") {
       const out = execSync("scutil --proxy", { stdio: ["ignore", "pipe", "ignore"] }).toString();
-      const enabled = /HTTPSEnable\s*:\s*1/.test(out) || /HTTPEnable\s*:\s*1/.test(out);
-      if (!enabled) return null;
-      const host = (out.match(/HTTPSProxy\s*:\s*([^\s]+)/) || out.match(/HTTPProxy\s*:\s*([^\s]+)/) || [])[1];
-      const port = (out.match(/HTTPSPort\s*:\s*(\d+)/) || out.match(/HTTPPort\s*:\s*(\d+)/) || [])[1];
-      if (host && port) return new URL(`http://${host}:${port}`);
+      // Prefer an HTTP(S) proxy when present…
+      if (/HTTPSEnable\s*:\s*1/.test(out) || /HTTPEnable\s*:\s*1/.test(out)) {
+        const host = (out.match(/HTTPSProxy\s*:\s*([^\s]+)/) || out.match(/HTTPProxy\s*:\s*([^\s]+)/) || [])[1];
+        const port = (out.match(/HTTPSPort\s*:\s*(\d+)/) || out.match(/HTTPPort\s*:\s*(\d+)/) || [])[1];
+        if (host && port) return new URL(`http://${host}:${port}`);
+      }
+      // …otherwise fall back to a SOCKS proxy (Shadowsocks/Trojan/Clash-SOCKS).
+      if (/SOCKSEnable\s*:\s*1/.test(out)) {
+        const host = (out.match(/SOCKSProxy\s*:\s*([^\s]+)/) || [])[1];
+        const port = (out.match(/SOCKSPort\s*:\s*(\d+)/) || [])[1];
+        if (host && port) return new URL(`socks5://${host}:${port}`);
+      }
     } else if (process.platform === "win32") {
       const out = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable /v ProxyServer', { stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).toString();
       if (!/ProxyEnable\s+REG_DWORD\s+0x1/.test(out)) return null;
       const server = (out.match(/ProxyServer\s+REG_SZ\s+(\S+)/) || [])[1];
       if (!server) return null;
-      const hp = server.includes("=") ? (server.split(";").find(s => s.startsWith("https=") || s.startsWith("http=")) || "").split("=")[1] : server;
-      if (hp) return new URL(`http://${hp}`);
+      if (server.includes("=")) {
+        const parts = server.split(";");
+        const httpHp = (parts.find(s => s.startsWith("https=") || s.startsWith("http=")) || "").split("=")[1];
+        if (httpHp) return new URL(`http://${httpHp}`);
+        const socksHp = (parts.find(s => s.startsWith("socks=")) || "").split("=")[1];
+        if (socksHp) return new URL(`socks5://${socksHp}`);
+      } else {
+        return new URL(`http://${server}`);
+      }
     }
   } catch {}
   return null;
@@ -124,16 +150,102 @@ function connectViaProxy(proxyUrl, targetHost, targetPort) {
   });
 }
 
+// Build a tunnel through a SOCKS5 proxy (Shadowsocks / Trojan / Clash-SOCKS),
+// returning a TLS socket to the origin. Zero-dependency RFC 1928 client with
+// optional username/password (RFC 1929) auth. Sends the destination as a host
+// name (ATYP=domain) so DNS is resolved on the proxy side — important when the
+// origin is only reachable through the tunnel.
+function connectViaSocks5(proxyUrl, targetHost, targetPort) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(Number(proxyUrl.port) || 1080, proxyUrl.hostname);
+    const fail = (e) => { sock.destroy(); reject(e instanceof Error ? e : new Error(String(e))); };
+    sock.on("error", fail);
+
+    const user = proxyUrl.username ? decodeURIComponent(proxyUrl.username) : "";
+    const pass = proxyUrl.password ? decodeURIComponent(proxyUrl.password) : "";
+
+    // Read exactly n bytes from the socket, buffering across chunks.
+    let buf = Buffer.alloc(0);
+    let want = null, cb = null;
+    const pump = () => {
+      while (want != null && buf.length >= want) {
+        const out = buf.subarray(0, want); buf = buf.subarray(want);
+        const f = cb; want = null; cb = null; f(out);
+      }
+    };
+    const onData = (d) => { buf = Buffer.concat([buf, d]); pump(); };
+    sock.on("data", onData);
+    const read = (n, f) => { want = n; cb = f; pump(); };
+
+    // Handshake done: stop intercepting the socket and hand any bytes that
+    // arrived after the SOCKS reply back to the stream, so the TLS layer
+    // sees a clean, complete byte sequence.
+    const handoff = () => {
+      sock.removeListener("data", onData);
+      if (buf.length) sock.unshift(buf);
+      const tlsSock = tls.connect({ socket: sock, servername: targetHost });
+      tlsSock.on("secureConnect", () => resolve(tlsSock));
+      tlsSock.on("error", fail);
+    };
+
+    sock.on("connect", () => {
+      // Greeting: offer "no-auth" (0x00) and, if we have creds, user/pass (0x02).
+      const methods = user ? [0x00, 0x02] : [0x00];
+      sock.write(Buffer.from([0x05, methods.length, ...methods]));
+      read(2, (rep) => {
+        if (rep[0] !== 0x05) return fail(new Error("SOCKS5: bad version from proxy"));
+        const method = rep[1];
+        if (method === 0xff) return fail(new Error("SOCKS5: no acceptable auth method"));
+        const sendConnect = () => {
+          const host = Buffer.from(targetHost, "utf8");
+          const req = Buffer.concat([
+            Buffer.from([0x05, 0x01, 0x00, 0x03, host.length]),
+            host,
+            Buffer.from([(targetPort >> 8) & 0xff, targetPort & 0xff]),
+          ]);
+          sock.write(req);
+          read(4, (head) => {
+            if (head[1] !== 0x00) return fail(new Error(`SOCKS5: connect failed (code ${head[1]})`));
+            const atyp = head[3];
+            const skip = atyp === 0x01 ? 4 + 2 : atyp === 0x04 ? 16 + 2 : null;
+            const finish = handoff;
+            if (skip != null) read(skip, finish);
+            else read(1, (l) => read(l[0] + 2, finish)); // domain: 1 len byte + name + port
+          });
+        };
+        if (method === 0x02) {
+          const u = Buffer.from(user, "utf8"), p = Buffer.from(pass, "utf8");
+          sock.write(Buffer.concat([Buffer.from([0x01, u.length]), u, Buffer.from([p.length]), p]));
+          read(2, (a) => { if (a[1] !== 0x00) return fail(new Error("SOCKS5: auth rejected")); sendConnect(); });
+        } else {
+          sendConnect();
+        }
+      });
+    });
+  });
+}
+
+// Open a TLS socket to options.hostname:443 through whatever proxy the OS
+// advertises — HTTP CONNECT, SOCKS5, or none (direct / TUN mode).
+async function connectUpstream(hostname) {
+  const proxyUrl = detectSystemProxy();
+  if (!proxyUrl) return null; // direct connection (covers TUN / corporate VPN)
+  const scheme = (proxyUrl.protocol || "").replace(":", "").toLowerCase();
+  dbg(`[Bridge] Routing via ${scheme} proxy ${proxyUrl.hostname}:${proxyUrl.port}`);
+  if (scheme.startsWith("socks")) return connectViaSocks5(proxyUrl, hostname, 443);
+  return connectViaProxy(proxyUrl, hostname, 443);
+}
+
 // Issue an HTTPS request, tunneling through the system proxy if one is set.
 // Returns a Promise<ClientRequest> because proxy CONNECT is async.
 async function upstreamHttpsRequest(options, onResponse) {
-  const proxyUrl = detectSystemProxy();
-  if (!proxyUrl) {
-    return https.request(options, onResponse);
-  }
-  dbg(`[Bridge] Routing via system proxy ${proxyUrl.hostname}:${proxyUrl.port}`);
-  const socket = await connectViaProxy(proxyUrl, options.hostname, 443);
-  return https.request({ ...options, createConnection: () => socket }, onResponse);
+  const socket = await connectUpstream(options.hostname);
+  if (!socket) return https.request(options, onResponse);
+  // When we supply our own pre-tunneled socket via createConnection, Node no
+  // longer infers the port, so it would emit a "Host: <host>:80" header that
+  // some origins (e.g. GitHub) reject with 400. Pin port + servername so the
+  // generated Host header and SNI are correct.
+  return https.request({ port: 443, servername: options.hostname, ...options, createConnection: () => socket }, onResponse);
 }
 
 // ─── Assets ────────────────────────────────────────────────────────────────
@@ -362,25 +474,27 @@ async function getCopilotClaudeModelsRaw() {
   const now = Date.now();
   if (copilotModelsCache && now - copilotModelsCacheAt < 300000) return copilotModelsCache;
   const token = await ensureCopilotToken();
-  const data = await new Promise((resolve, reject) => {
-    const r = https.request({
-      hostname: COPILOT_API, path: "/models", method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
-        "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
-        "X-GitHub-Api-Version": "2025-10-01",
-      },
-    }, res => {
-      const chunks = [];
-      res.on("data", c => chunks.push(c));
-      res.on("end", () => {
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
-        catch (e) { reject(e); }
+  const data = await new Promise(async (resolve, reject) => {
+    try {
+      const r = await upstreamHttpsRequest({
+        hostname: COPILOT_API, path: "/models", method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
+          "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
+          "X-GitHub-Api-Version": "2025-10-01",
+        },
+      }, res => {
+        const chunks = [];
+        res.on("data", c => chunks.push(c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+          catch (e) { reject(e); }
+        });
       });
-    });
-    r.on("error", reject);
-    r.end();
+      r.on("error", reject);
+      r.end();
+    } catch (e) { reject(e); }
   });
   const list = (data.data || []).filter(m => /claude/i.test(m.id || ""));
   copilotModelsCache = list;
