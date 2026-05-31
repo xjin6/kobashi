@@ -51,6 +51,12 @@
   .env-box{background:var(--env-bg);border:1px solid var(--env-border);border-radius:8px;padding:12px 14px;font-family:"SF Mono",Consolas,monospace;font-size:11px;line-height:2;color:var(--muted);margin-top:8px;transition:all .3s}
   .env-box .key{color:var(--env-key)}
   .env-box .val{color:var(--env-val)}
+  .warn{color:#d29922}
+  .select-wrap{position:relative;width:100%}
+  .select-wrap select{width:100%;appearance:none;-webkit-appearance:none;background:var(--code-bg);border:1px solid var(--card-border);color:var(--fg);font-size:12px;font-family:"SF Mono",Consolas,monospace;padding:6px 28px 6px 10px;border-radius:6px;outline:none;cursor:pointer;transition:border-color .15s}
+  .select-wrap select:hover{border-color:var(--accent1)}
+  .select-wrap select:focus{border-color:var(--accent1)}
+  .select-arrow{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)}
   .section-title{font-size:11px;color:var(--muted);margin-top:20px;margin-bottom:8px}
   .fade-in{animation:fadeIn .4s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -144,7 +150,7 @@
         </div>
         <div class="toggle" id="claude-toggle" onclick="toggleClaude()"><div class="knob"></div></div>
       </div>
-      <details class="panel-config">
+      <details class="panel-config" id="claude-config">
         <summary>
           <span>Configuration</span>
           <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
@@ -153,6 +159,17 @@
           <span class="key">ANTHROPIC_BASE_URL</span>=<span class="val">http://127.0.0.1:{{CLAUDE_PORT}}</span><br/>
           <span class="key">ANTHROPIC_AUTH_TOKEN</span>=<span class="val">PROXY_MANAGED</span><br/>
           <span style="color:#484f58">Auto-injected to ~/.claude/settings.json &middot; Restart terminal</span>
+        </div>
+        <div style="margin-top:10px;border-top:1px solid var(--card-border);padding-top:10px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Active Model</div>
+          <div id="model-map" style="font-size:12px;color:var(--fg);margin-bottom:8px">—</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Model Override</div>
+          <div class="select-wrap">
+            <select id="model-override-select" onchange="setModelOverride(this.value)">
+              <option value="">Use models from VSCode</option>
+            </select>
+            <svg class="select-arrow" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"/></svg>
+          </div>
         </div>
       </details>
     </div>
@@ -186,7 +203,7 @@
       </details>
     </div>
   </div>
-  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.6.0 &middot; 2026-05-31</div>
+  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.7.0 &middot; 2026-06-01</div>
 </div>
 
 <script>
@@ -238,11 +255,35 @@ async function toggleClaude(){
   const r=await fetch('/api/toggle-claude',{method:'POST'});const d=await r.json();setToggle('claude',d.claudeEnabled);
 }
 async function disconnect(){await fetch('/api/disconnect',{method:'POST'});show('idle')}
+async function setModelOverride(val){
+  await fetch('/api/set-claude-model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:val||null})});
+}
+function renderStatus(d){
+  if(!d.connected) return;
+  // model-map: show last requested → sent as-is
+  const mm=d.lastModelMap;
+  const map=document.getElementById('model-map');
+  if(mm){
+    let s='Received <b>'+(mm.requested||'—')+'</b> → Sent <b>'+(mm.sent||'—')+'</b>';
+    if(mm.downgraded) s+=' <span class="warn">⚠ '+(mm.note||'downgraded')+'</span>';
+    map.innerHTML=s;
+  }
+  // dropdown: rebuild options when model list changes, preserve current selection
+  const sel=document.getElementById('model-override-select');
+  const cur=d.claudeModelOverride||'';
+  const models=d.claudeModels||[];
+  if(sel.dataset.built!==models.map(m=>m.id).join(',')){
+    sel.innerHTML='<option value="">Use models from VSCode</option>';
+    models.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.id;sel.appendChild(o);});
+    sel.dataset.built=models.map(m=>m.id).join(',');
+  }
+  sel.value=cur;
+}
 fetch('/api/status').then(r=>r.json()).then(d=>{
-  if(d.connected){document.getElementById('username').textContent='@'+d.username;setToggle('codex',d.codexEnabled);setToggle('claude',d.claudeEnabled);show('connected')}
+  if(d.connected){document.getElementById('username').textContent='@'+d.username;setToggle('codex',d.codexEnabled);setToggle('claude',d.claudeEnabled);show('connected');renderStatus(d)}
   else show('idle');
 });
-setInterval(()=>fetch('/api/status').catch(()=>{}),10000);
+setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.connected)renderStatus(d)}).catch(()=>{}),2000);
 setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 </script>
 </body>

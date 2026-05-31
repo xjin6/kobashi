@@ -420,9 +420,15 @@ function writeCodexConfig() {
   if (process.platform === "win32") {
     try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore", windowsHide: true }); } catch {}
     try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore", windowsHide: true }); } catch {}
+    try { execSync(`setx NO_PROXY "127.0.0.1,localhost"`, { stdio: "ignore", windowsHide: true }); } catch {}
   } else if (process.platform === "darwin") {
     try { execSync("launchctl setenv OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore" }); } catch {}
     try { execSync(`launchctl setenv OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
+    // CRITICAL: Codex's Rust HTTP client honours system proxy. If user has a system
+    // HTTP proxy (Clash etc.) at 127.0.0.1:1089, codex's request to our local 18921
+    // would be intercepted by the proxy and silently dropped. Bypass for loopback.
+    try { execSync(`launchctl setenv NO_PROXY "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
+    try { execSync(`launchctl setenv no_proxy "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
   }
   log("[Bridge] Codex config injected");
 }
@@ -558,6 +564,13 @@ async function loadSession() {
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, codexEnabled = false, claudeEnabled = false;
+// Most-recent Claude model mapping, surfaced in the UI status bar so the user
+// can see what Claude Code asked for vs. what we actually sent to Copilot
+// (e.g. opus-4.8[1m] downgraded to opus-4.8 because Copilot has no 1M variant).
+let lastModelMap = null; // { requested, sent, downgraded, note, at }
+// When set, kobashi ignores whatever Claude Code requests and forces this model.
+// null = pass-through (no override).
+let claudeModelOverride = null;
 
 function httpsRequest(options, body) {
   return new Promise(async (resolve, reject) => {
@@ -661,21 +674,9 @@ async function getClaudeCodeFacingModels() {
     seen.add(cc);
     out.push({ id: cc, name: m.name || m.id, _copilot: m.id });
   }
-  // Synthesize [1m] variant for each base that lacks one
-  for (const m of raw) {
-    if (/-1m$/i.test(m.id)) continue;
-    const base = copilotIdToClaudeCodeId(m.id);
-    const variant = `${base}[1m]`;
-    if (seen.has(variant)) continue;
-    // If there is a native -1m Copilot twin, skip (already covered above)
-    if (byCopilotId.has(`${m.id}-1m`)) continue;
-    seen.add(variant);
-    out.push({
-      id: variant,
-      name: `${m.name || m.id} (1M context)`,
-      _copilot: m.id,
-    });
-  }
+  // Removed: no longer synthesise fake [1m] variants.
+  // Only expose models Copilot actually provides — what you pick is what gets sent.
+  // For true 1M context, select a model Copilot natively offers (e.g. claude-opus-4.6-1m).
   return out;
 }
 
@@ -720,22 +721,66 @@ const proxy = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: "Codex bridge not active" }));
     return;
   }
+  // GET /v1/models — Codex CLI uses this as a health-check / model picker.
+  // Copilot doesn't expose this endpoint, so return a static list of the
+  // models Copilot actually supports via the Responses API.
+  if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
+    // Only models Copilot's Responses API actually accepts (probed empirically).
+    const models = [
+      "gpt-5.2-codex", "gpt-5.3-codex",
+      "gpt-5.2", "gpt-5.4", "gpt-5.5",
+      "gpt-5.4-mini", "gpt-5-mini",
+    ];
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      object: "list",
+      data: models.map(id => ({ id, object: "model", created: 0, owned_by: "copilot" })),
+    }));
+    return;
+  }
   const bodyChunks = [];
   for await (const chunk of req) bodyChunks.push(chunk);
-  const bodyBuf = Buffer.concat(bodyChunks);
+  let bodyBuf = Buffer.concat(bodyChunks);
+  // Map legacy / canonical model ids Codex sends to ones Copilot's Responses API accepts.
+  // Codex defaults to "gpt-5-codex" / "gpt-5" which Copilot rejects — translate to a
+  // versioned sibling. Body is mutated only when model field is present and recognized.
+  if (req.method === "POST" && bodyBuf.length && req.url.includes("/responses")) {
+    try {
+      const j = JSON.parse(bodyBuf.toString());
+      if (j.model) {
+        const codexModelMap = {
+          "gpt-5": "gpt-5.5",
+          "gpt-5-codex": "gpt-5.2-codex",
+          "gpt-4.1": "gpt-5.4",     // 4.1 family not in Responses API; use closest 5.x
+          "gpt-4o": "gpt-5.4",
+          "gpt-4o-mini": "gpt-5.4-mini",
+          "o3": "gpt-5.5",
+          "o4-mini": "gpt-5.4-mini",
+        };
+        const original = j.model;
+        if (codexModelMap[j.model]) {
+          j.model = codexModelMap[j.model];
+          bodyBuf = Buffer.from(JSON.stringify(j));
+          log(`[Codex] model ${original} → ${j.model}`);
+        }
+      }
+    } catch {}
+  }
   try {
     const token = await ensureCopilotToken();
     const p = req.url.startsWith("/v1") ? req.url : `/v1${req.url}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "Content-Length": bodyBuf.length,  // Use the potentially-modified body length
+      Authorization: `Bearer ${token}`,
+      "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
+      "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
+      "X-GitHub-Api-Version": "2025-10-01",
+    };
     const upstream = await upstreamHttpsRequest({
-      hostname: COPILOT_API, path: p, method: req.method,
-      headers: {
-        "Content-Type": "application/json", Authorization: `Bearer ${token}`,
-        "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
-        "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
-        "X-GitHub-Api-Version": "2025-10-01",
-      },
+      hostname: COPILOT_API, path: p, method: req.method, headers,
     }, (upstreamRes) => {
-      dbg(`[Proxy] ${req.method} ${p} → ${upstreamRes.statusCode}`);
+      dbg(`[Codex] ${req.method} ${p} → ${upstreamRes.statusCode}`);
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
     });
@@ -760,26 +805,65 @@ function anthropicToOpenAI(req) {
       continue;
     }
     // Content blocks: text, tool_use, tool_result, image
-    const textParts = [];
+    const contentParts = [];     // multimodal parts (text + image_url) for this message
     const toolCalls = [];
     const toolResults = [];
+    const deferredImages = [];    // images pulled out of tool_result, re-attached below
+
+    // Anthropic image block → OpenAI image_url part. Supports base64 and url sources.
+    const toImagePart = (src) => {
+      if (!src) return null;
+      if (src.type === "base64" && src.data)
+        return { type: "image_url", image_url: { url: `data:${src.media_type || "image/png"};base64,${src.data}` } };
+      if (src.type === "url" && src.url)
+        return { type: "image_url", image_url: { url: src.url } };
+      return null;
+    };
+
     for (const b of m.content || []) {
-      if (b.type === "text") textParts.push(b.text);
-      else if (b.type === "tool_use") {
+      if (b.type === "text") contentParts.push({ type: "text", text: b.text || "" });
+      else if (b.type === "image") {
+        const p = toImagePart(b.source);
+        if (p) contentParts.push(p);
+      } else if (b.type === "tool_use") {
         toolCalls.push({
           id: b.id, type: "function",
           function: { name: b.name, arguments: JSON.stringify(b.input || {}) }
         });
       } else if (b.type === "tool_result") {
-        const rc = typeof b.content === "string"
-          ? b.content
-          : (b.content || []).map(x => x.text || "").join("\n");
+        const blocks = typeof b.content === "string"
+          ? [{ type: "text", text: b.content }]
+          : (b.content || []);
+        const textChunks = [];
+        for (const x of blocks) {
+          if (x.type === "image") {
+            const p = toImagePart(x.source);
+            if (p) deferredImages.push(p);
+          } else {
+            textChunks.push(x.text || "");
+          }
+        }
+        let rc = textChunks.join("\n");
+        if (!rc && deferredImages.length) rc = "[image returned by tool — see attached image below]";
         toolResults.push({ role: "tool", tool_call_id: b.tool_use_id, content: rc });
       }
     }
-    if (toolResults.length) { for (const tr of toolResults) messages.push(tr); continue; }
+    if (toolResults.length) {
+      for (const tr of toolResults) messages.push(tr);
+      // OpenAI tool-role messages can't carry images, so any image a tool returned
+      // (e.g. Read on a screenshot) is re-attached as a follow-up user message —
+      // this is what lets vision models actually see tool-produced images.
+      if (deferredImages.length) messages.push({ role: "user", content: deferredImages });
+      continue;
+    }
     const msg = { role: m.role };
-    if (textParts.length) msg.content = textParts.join("\n");
+    const hasImage = contentParts.some(p => p.type === "image_url");
+    if (hasImage) {
+      msg.content = contentParts;            // keep multimodal array so the image survives
+    } else {
+      const text = contentParts.map(p => p.text).join("\n");
+      if (text) msg.content = text;
+    }
     if (toolCalls.length) { msg.tool_calls = toolCalls; if (!msg.content) msg.content = null; }
     messages.push(msg);
   }
@@ -956,6 +1040,7 @@ const claudeProxy = http.createServer(async (req, res) => {
       if (typeof m.content === "string") chars += m.content.length;
       else for (const b of m.content || []) {
         if (b.type === "text") chars += (b.text || "").length;
+        else if (b.type === "image") chars += 4000; // rough flat cost so images aren't counted as zero
         else if (b.type === "tool_use") chars += JSON.stringify(b.input || {}).length + (b.name || "").length;
         else if (b.type === "tool_result") chars += (typeof b.content === "string" ? b.content : JSON.stringify(b.content || "")).length;
       }
@@ -1003,7 +1088,10 @@ const claudeProxy = http.createServer(async (req, res) => {
 
   const isStream = !!anthropicReq.stream;
   const oaiReq = anthropicToOpenAI(anthropicReq);
+  // If the user pinned a model in the kobashi UI, it overrides whatever Claude Code sent.
+  if (claudeModelOverride) oaiReq.model = claudeModelOverride;
   // Remap the requested model to one Copilot actually exposes
+  const requestedModel = oaiReq.model; // what Claude Code asked for (after override), before mapping
   try {
     const mapped = await mapClaudeModel(oaiReq.model);
     if (mapped !== oaiReq.model) dbg(`[Claude] model ${oaiReq.model} → ${mapped}`);
@@ -1013,6 +1101,24 @@ const claudeProxy = http.createServer(async (req, res) => {
     oaiReq.model = CLAUDE_MODEL;
   }
   const model = oaiReq.model;
+
+  // Record the mapping for the UI status bar. "downgraded" flags the common case
+  // where the user picked a [1m] context that Copilot doesn't expose, so we
+  // silently fell back to the 200k base — the user deserves to see that.
+  {
+    const askedFor1m = /\[1m\]$/i.test(requestedModel || "") || /-1m\b/i.test(requestedModel || "");
+    const sent1m = /-1m\b/i.test(model || "");
+    const downgraded = askedFor1m && !sent1m;
+    lastModelMap = {
+      requested: requestedModel || "(default)",
+      sent: model,
+      downgraded,
+      note: downgraded ? "No 1M variant on Copilot, downgraded to 200K" : "",
+      at: Date.now(),
+    };
+    if (downgraded) log(`[Claude] ⚠ ${requestedModel} → ${model} (no 1M on Copilot, downgraded to 200K)`);
+    else dbg(`[Claude] mapped ${requestedModel} → ${model}`);
+  }
 
   try {
     const token = await ensureCopilotToken();
@@ -1114,8 +1220,19 @@ const ui = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.url === "/api/status") {
+    let claudeModels = [];
+    // Expose the raw Copilot id (dot format) as the value so override sends exactly what Copilot expects.
+    try { claudeModels = (await getClaudeCodeFacingModels()).map(m => ({ id: m._copilot, name: m.name })); } catch {}
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, claudeModelOverride, claudeModels })); return;
+  }
+  if (req.method === "POST" && req.url === "/api/set-claude-model") {
+    if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
+    const chunks = []; for await (const c of req) chunks.push(c);
+    const { model } = JSON.parse(Buffer.concat(chunks).toString());
+    claudeModelOverride = model || null; // null = clear override (pass-through)
+    log(`[Claude] model override → ${claudeModelOverride || "(pass-through)"}`);
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ claudeModelOverride })); return;
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
