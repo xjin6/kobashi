@@ -3,11 +3,11 @@ set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
 BINARY="kobashi"
-VERSION="1.5.2"
+VERSION="1.7.0"
 
 echo "==> Building Windows binary..."
 mkdir -p dist
-npx @yao-pkg/pkg . --targets node18-win-x64 --output "dist/${BINARY}.exe"
+npx @yao-pkg/pkg . --targets node22-win-x64 --output "dist/${BINARY}.exe"
 
 # Set custom icon (extract pkg payload, rcedit, restore payload)
 echo "==> Setting icon..."
