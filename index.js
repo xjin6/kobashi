@@ -825,6 +825,21 @@ function anthropicToOpenAI(req) {
       else if (b.type === "image") {
         const p = toImagePart(b.source);
         if (p) contentParts.push(p);
+      } else if (b.type === "document") {
+        // Anthropic 'document' blocks (e.g. Claude Code reading a PDF). The Copilot
+        // chat/completions endpoint REJECTS pdf parts (verified: 400 "Could not
+        // process image" / "type has to be image_url or text"), so we can't pass
+        // them through. Degrade loudly: surface any caller-provided plaintext, else
+        // a clear placeholder, so the turn doesn't 400 and the model knows why.
+        const src = b.source || {};
+        if (src.type === "text" && src.data) {
+          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""}]\n${src.data}` });
+        } else if (src.type === "content" && Array.isArray(src.content)) {
+          const t = src.content.filter(x => x.type === "text").map(x => x.text || "").join("\n");
+          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""}]\n${t}` });
+        } else {
+          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""} omitted — this backend cannot accept binary PDFs; ask the user to paste the relevant text]` });
+        }
       } else if (b.type === "tool_use") {
         toolCalls.push({
           id: b.id, type: "function",
@@ -845,6 +860,9 @@ function anthropicToOpenAI(req) {
         }
         let rc = textChunks.join("\n");
         if (!rc && deferredImages.length) rc = "[image returned by tool — see attached image below]";
+        // OpenAI tool messages have no is_error flag, so fold Anthropic's error
+        // signal into the text — otherwise the model can't tell a tool failed.
+        if (b.is_error) rc = `[tool error] ${rc}`;
         toolResults.push({ role: "tool", tool_call_id: b.tool_use_id, content: rc });
       }
     }
@@ -873,15 +891,41 @@ function anthropicToOpenAI(req) {
     messages,
     stream: !!req.stream,
   };
+  // Ask the upstream to include token usage in the streaming response, otherwise
+  // streamed turns report input_tokens:0 and Claude Code's context meter is blind.
+  if (req.stream) out.stream_options = { include_usage: true };
   if (req.max_tokens) out.max_tokens = req.max_tokens;
   if (req.temperature !== undefined) out.temperature = req.temperature;
   if (req.top_p !== undefined) out.top_p = req.top_p;
   if (req.stop_sequences) out.stop = req.stop_sequences;
+  if (req.metadata && req.metadata.user_id) out.user = req.metadata.user_id;
+  // Effort slider → reasoning_effort. Claude Code maps its Effort control to
+  // thinking.budget_tokens (≈1024 low … up to --max-thinking-tokens, e.g. 31999).
+  // Copilot ignores budget_tokens itself, but DOES honor OpenAI reasoning_effort
+  // (verified empirically: low avg ~396 vs high ~864 chars of reasoning, fully
+  // separated distributions). So we bucket the budget into low/medium/high.
+  if (req.thinking && req.thinking.type === "enabled" && typeof req.thinking.budget_tokens === "number") {
+    const b = req.thinking.budget_tokens;
+    out.reasoning_effort = b <= 4096 ? "low" : b <= 16000 ? "medium" : "high";
+  }
   if (req.tools) {
     out.tools = req.tools.map(t => ({
       type: "function",
       function: { name: t.name, description: t.description, parameters: t.input_schema }
     }));
+  }
+  // Anthropic tool_choice → OpenAI tool_choice. Without this, Claude Code's
+  // "force this tool" / "must use a tool" semantics were silently lost and the
+  // model was free to answer in prose instead of calling the tool it was told to.
+  // Verified upstream: Copilot honors "auto" / "required" / "none" / {function}.
+  if (req.tool_choice && typeof req.tool_choice === "object") {
+    const tc = req.tool_choice;
+    if (tc.type === "auto") out.tool_choice = "auto";
+    else if (tc.type === "any") out.tool_choice = "required";
+    else if (tc.type === "none") out.tool_choice = "none";
+    else if (tc.type === "tool" && tc.name)
+      out.tool_choice = { type: "function", function: { name: tc.name } };
+    if (tc.disable_parallel_tool_use) out.parallel_tool_calls = false;
   }
   return out;
 }
@@ -890,6 +934,14 @@ function openAIToAnthropicResponse(oai, model) {
   const choice = (oai.choices || [{}])[0];
   const msg = choice.message || {};
   const content = [];
+  // Reasoning (Copilot streams/returns the model's chain-of-thought as
+  // reasoning_text, with an opaque signature in reasoning_opaque). Emit it as a
+  // proper Anthropic thinking block FIRST so it renders as the model's thinking.
+  if (msg.reasoning_text) {
+    const tb = { type: "thinking", thinking: msg.reasoning_text };
+    if (msg.reasoning_opaque) tb.signature = msg.reasoning_opaque;
+    content.push(tb);
+  }
   if (msg.content) content.push({ type: "text", text: msg.content });
   if (msg.tool_calls) {
     for (const tc of msg.tool_calls) {
@@ -898,7 +950,7 @@ function openAIToAnthropicResponse(oai, model) {
       content.push({ type: "tool_use", id: tc.id, name: tc.function.name, input });
     }
   }
-  const stopReasonMap = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use" };
+  const stopReasonMap = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use", content_filter: "end_turn" };
   return {
     id: oai.id || `msg_${Date.now()}`,
     type: "message",
@@ -918,8 +970,14 @@ function openAIToAnthropicResponse(oai, model) {
 function makeStreamTranslator(model, write) {
   const msgId = `msg_${Date.now()}`;
   let started = false;
-  let textBlockOpen = false;
-  let toolBlocks = {}; // index -> { id, name, jsonBuf }
+  // Dynamic block-index allocator. Anthropic requires content blocks to be
+  // indexed in the order they are opened. A response may contain a thinking
+  // block, then text, then one or more tool_use blocks — so we can no longer
+  // hardcode text=0. Whatever opens first gets the next free index.
+  let nextIndex = 0;
+  let thinkingIndex = -1, thinkingOpen = false, sigSent = false, pendingSig = null;
+  let textIndex = -1, textBlockOpen = false;
+  let toolBlocks = {}; // openai tool index -> { anthIndex, id, name, jsonBuf }
   let inputTokens = 0, outputTokens = 0;
   let stopReason = "end_turn";
   let buffer = "";
@@ -941,13 +999,27 @@ function makeStreamTranslator(model, write) {
     });
   }
 
+  // Thinking must be fully emitted and closed before any text/tool block opens,
+  // because Anthropic blocks can't interleave. When text or a tool arrives we
+  // first flush the signature (if upstream gave one) and stop the thinking block.
+  function closeThinking() {
+    if (!thinkingOpen) return;
+    if (pendingSig && !sigSent) {
+      send("content_block_delta", { type: "content_block_delta", index: thinkingIndex, delta: { type: "signature_delta", signature: pendingSig } });
+      sigSent = true;
+    }
+    send("content_block_stop", { type: "content_block_stop", index: thinkingIndex });
+    thinkingOpen = false;
+  }
+
   function closeOpenBlocks() {
+    closeThinking();
     if (textBlockOpen) {
-      send("content_block_stop", { type: "content_block_stop", index: 0 });
+      send("content_block_stop", { type: "content_block_stop", index: textIndex });
       textBlockOpen = false;
     }
-    for (const idx of Object.keys(toolBlocks)) {
-      send("content_block_stop", { type: "content_block_stop", index: parseInt(idx) });
+    for (const k of Object.keys(toolBlocks)) {
+      send("content_block_stop", { type: "content_block_stop", index: toolBlocks[k].anthIndex });
     }
     toolBlocks = {};
   }
@@ -971,37 +1043,56 @@ function makeStreamTranslator(model, write) {
           outputTokens = evt.usage.completion_tokens || outputTokens;
         }
 
-        if (delta.content) {
-          if (!textBlockOpen) {
-            send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
-            textBlockOpen = true;
+        // ── Reasoning / thinking deltas (Copilot: delta.reasoning_text) ──
+        if (delta.reasoning_text) {
+          if (!thinkingOpen) {
+            thinkingIndex = nextIndex++;
+            thinkingOpen = true;
+            send("content_block_start", { type: "content_block_start", index: thinkingIndex, content_block: { type: "thinking", thinking: "", signature: "" } });
           }
-          send("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: delta.content } });
+          send("content_block_delta", { type: "content_block_delta", index: thinkingIndex, delta: { type: "thinking_delta", thinking: delta.reasoning_text } });
         }
+        // Opaque thinking signature arrives once; emit it when we close the block.
+        if (delta.reasoning_opaque) pendingSig = delta.reasoning_opaque;
+
+        // ── Text deltas ──
+        if (delta.content) {
+          closeThinking();
+          if (!textBlockOpen) {
+            textIndex = nextIndex++;
+            textBlockOpen = true;
+            send("content_block_start", { type: "content_block_start", index: textIndex, content_block: { type: "text", text: "" } });
+          }
+          send("content_block_delta", { type: "content_block_delta", index: textIndex, delta: { type: "text_delta", text: delta.content } });
+        }
+
+        // ── Tool-call deltas ──
         if (delta.tool_calls) {
+          closeThinking();
           for (const tc of delta.tool_calls) {
-            const idx = (tc.index !== undefined ? tc.index : 0) + (textBlockOpen ? 1 : 0);
-            if (!toolBlocks[idx]) {
-              toolBlocks[idx] = { id: tc.id || `tool_${idx}`, name: (tc.function && tc.function.name) || "", jsonBuf: "" };
+            const key = tc.index !== undefined ? tc.index : 0;
+            if (!toolBlocks[key]) {
+              const anthIndex = nextIndex++;
+              toolBlocks[key] = { anthIndex, id: tc.id || `tool_${anthIndex}`, name: (tc.function && tc.function.name) || "", jsonBuf: "" };
               send("content_block_start", {
-                type: "content_block_start", index: idx,
-                content_block: { type: "tool_use", id: toolBlocks[idx].id, name: toolBlocks[idx].name, input: {} },
+                type: "content_block_start", index: anthIndex,
+                content_block: { type: "tool_use", id: toolBlocks[key].id, name: toolBlocks[key].name, input: {} },
               });
             }
-            const block = toolBlocks[idx];
+            const block = toolBlocks[key];
             if (tc.id) block.id = tc.id;
             if (tc.function && tc.function.name) block.name = tc.function.name;
             if (tc.function && tc.function.arguments) {
               block.jsonBuf += tc.function.arguments;
               send("content_block_delta", {
-                type: "content_block_delta", index: idx,
+                type: "content_block_delta", index: block.anthIndex,
                 delta: { type: "input_json_delta", partial_json: tc.function.arguments },
               });
             }
           }
         }
         if (finish) {
-          const map = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use" };
+          const map = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use", content_filter: "end_turn" };
           stopReason = map[finish] || "end_turn";
         }
       }
@@ -1012,7 +1103,7 @@ function makeStreamTranslator(model, write) {
       send("message_delta", {
         type: "message_delta",
         delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { output_tokens: outputTokens },
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
       });
       send("message_stop", { type: "message_stop" });
     },
@@ -1036,6 +1127,15 @@ const claudeProxy = http.createServer(async (req, res) => {
     let chars = 0;
     if (typeof body.system === "string") chars += body.system.length;
     else if (Array.isArray(body.system)) chars += body.system.reduce((n, b) => n + (b.text || "").length, 0);
+    // Tool DEFINITIONS are part of the prompt and can be 10-20K tokens in Claude
+    // Code (its toolset is large). Omitting them made the estimate skew badly low,
+    // which mis-triggers auto-compaction / context-overflow in Claude Code.
+    if (Array.isArray(body.tools)) {
+      for (const t of body.tools) {
+        chars += (t.name || "").length + (t.description || "").length;
+        if (t.input_schema) chars += JSON.stringify(t.input_schema).length;
+      }
+    }
     for (const m of body.messages || []) {
       if (typeof m.content === "string") chars += m.content.length;
       else for (const b of m.content || []) {
