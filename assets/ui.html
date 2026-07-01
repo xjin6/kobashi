@@ -203,7 +203,7 @@
       </details>
     </div>
   </div>
-  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.8.0 &middot; 2026-07-01</div>
+  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.9.1 &middot; 2026-07-01</div>
 </div>
 
 <script>
@@ -285,6 +285,11 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
 });
 setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.connected)renderStatus(d)}).catch(()=>{}),2000);
 setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
+// Tell the bridge to shut down only when this window is GENUINELY closed. A tab
+// that Edge/Windows merely freezes in the background does not fire pagehide, so
+// the bridge survives minimization instead of being killed by a stalled
+// heartbeat. persisted===true means bfcache (not a real close) — skip those.
+window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigator.sendBeacon('/api/closing')}catch(_){}}); 
 </script>
 </body>
 </html>

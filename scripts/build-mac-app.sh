@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."   # always run from repo root
 
 APP_NAME="Kobashi"
 BUNDLE_ID="com.xjin6.kobashi"
-VERSION="1.9.0"
+VERSION="1.9.1"
 BINARY="kobashi"
 
 echo "==> Building Node.js binaries..."
