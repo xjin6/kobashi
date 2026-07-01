@@ -10,6 +10,20 @@ const DEBUG = process.argv.includes("--debug");
 const log = (...a) => console.log(...a);
 const dbg = (...a) => { if (DEBUG) console.log(...a); };
 
+// ─── Last-resort crash guards ──────────────────────────────────────────────
+// The bridge proxies long-lived streaming responses. A single unhandled error
+// on any socket/stream (upstream reset mid-response, a listener that throws)
+// would otherwise take the whole process down — turning one failed request into
+// "Connection closed mid-response" and then ConnectionRefused for every request
+// after, since nothing is left listening on the proxy ports. Log and keep
+// serving instead; the affected request already failed, but the bridge lives.
+process.on("uncaughtException", (e) => {
+  log(`[Bridge] uncaughtException (ignored, staying up): ${e && e.stack ? e.stack : e}`);
+});
+process.on("unhandledRejection", (e) => {
+  log(`[Bridge] unhandledRejection (ignored, staying up): ${e && e.stack ? e.stack : e}`);
+});
+
 // ─── Browser detection ─────────────────────────────────────────────────────
 function findBrowser() {
   if (process.platform === "darwin") {
@@ -57,7 +71,13 @@ function openAppWindow(url) {
     }
   } else {
     if (BROWSER_PATH) {
-      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=420,560`, { stdio: "ignore", shell: true, windowsHide: true });
+      // Anti-freeze flags: stop Edge/Chrome from throttling or suspending this
+      // window's timers when it's backgrounded/minimized/occluded, so the UI's
+      // status polling keeps running instead of the window going to 0 K working
+      // set. Best-effort (ignored if the browser is already running), which is
+      // why the real fix is the pagehide beacon + removal of the suicide watchdog.
+      const antiFreeze = "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
+      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=420,560 ${antiFreeze}`, { stdio: "ignore", shell: true, windowsHide: true });
     } else {
       execSync(`start "" "${url}"`, { stdio: "ignore", shell: true, windowsHide: true });
     }
@@ -346,6 +366,15 @@ function directTlsConnect(hostname, timeoutMs) {
 async function upstreamHttpsRequest(options, onResponse) {
   const socket = await connectUpstream(options.hostname);
   if (!socket) return https.request(options, onResponse);
+  // A long streaming turn can idle for tens of seconds while the model "thinks"
+  // with no bytes flowing. On our self-managed upstream socket Node applies no
+  // idle timeout and no TCP keep-alive by default, so a NAT / proxy / OS can
+  // silently drop the connection mid-response — which the client then reports as
+  // "Connection closed mid-response". Enable keep-alive probes and pin the idle
+  // timeout to "never" so the socket stays healthy across quiet stretches.
+  // (node22's socket defaults differ from node18/20, which is why this only
+  // started biting on the Windows build.)
+  try { socket.setKeepAlive(true, 15000); socket.setTimeout(0); } catch {}
   // When we supply our own pre-tunneled socket via createConnection, Node no
   // longer infers the port, so it would emit a "Host: <host>:80" header that
   // some origins (e.g. GitHub) reject with 400. Pin port + servername so the
@@ -568,6 +597,9 @@ let username = null, codexEnabled = false, claudeEnabled = false;
 // can see what Claude Code asked for vs. what we actually sent to Copilot
 // (e.g. opus-4.8[1m] downgraded to opus-4.8 because Copilot has no 1M variant).
 let lastModelMap = null; // { requested, sent, downgraded, note, at }
+// Records the most recent thinking→effort mapping so the UI / an inspector can
+// see, live, exactly what reasoning_effort a given slider position produced.
+let lastEffort = null; // { source, requested, effort, at } — shown in UI as the active reasoning tier
 // When set, kobashi ignores whatever Claude Code requests and forces this model.
 // null = pass-through (no override).
 let claudeModelOverride = null;
@@ -592,7 +624,7 @@ function httpsRequest(options, body) {
 }
 
 async function ensureCopilotToken() {
-  if (copilotToken && Date.now() / 1000 < copilotTokenExpiry - 60) return copilotToken;
+  if (copilotToken && Date.now() / 1000 < copilotTokenExpiry - 120) return copilotToken;
   const res = await httpsRequest({
     hostname: "api.github.com", path: "/copilot_internal/v2/token", method: "GET",
     headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2", "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
@@ -781,8 +813,16 @@ const proxy = http.createServer(async (req, res) => {
       hostname: COPILOT_API, path: p, method: req.method, headers,
     }, (upstreamRes) => {
       dbg(`[Codex] ${req.method} ${p} → ${upstreamRes.statusCode}`);
+      // An expired/invalid Copilot token comes back as 401; drop the cache so the
+      // next request re-fetches a fresh one instead of failing again.
+      if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
+      // pipe() does not end the destination when the source errors, so a
+      // mid-stream upstream drop would leave the client hanging. Close both ends
+      // explicitly, and tear down the upstream if the client disconnects first.
+      upstreamRes.on("error", (e) => { dbg(`[Codex] upstream stream error: ${e.message}`); try { res.end(); } catch {} });
+      res.on("close", () => { try { upstreamRes.destroy(); } catch {} });
     });
     upstream.on("error", e => { try { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); } catch {} });
     if (bodyBuf.length) upstream.write(bodyBuf);
@@ -899,14 +939,45 @@ function anthropicToOpenAI(req) {
   if (req.top_p !== undefined) out.top_p = req.top_p;
   if (req.stop_sequences) out.stop = req.stop_sequences;
   if (req.metadata && req.metadata.user_id) out.user = req.metadata.user_id;
-  // Effort slider → reasoning_effort. Claude Code maps its Effort control to
-  // thinking.budget_tokens (≈1024 low … up to --max-thinking-tokens, e.g. 31999).
-  // Copilot ignores budget_tokens itself, but DOES honor OpenAI reasoning_effort
-  // (verified empirically: low avg ~396 vs high ~864 chars of reasoning, fully
-  // separated distributions). So we bucket the budget into low/medium/high.
-  if (req.thinking && req.thinking.type === "enabled" && typeof req.thinking.budget_tokens === "number") {
-    const b = req.thinking.budget_tokens;
-    out.reasoning_effort = b <= 4096 ? "low" : b <= 16000 ? "medium" : "high";
+  // Effort slider → reasoning_effort. Claude Code (post effort-2025-11-24 beta)
+  // sends the slider as a STRING in output_config.effort ("low"/"medium"/"high"/
+  // "xhigh"; ultracode collapses to "xhigh" internally). thinking is separately
+  // {type:"adaptive"} with NO budget_tokens — so the old budget-based mapping
+  // never fired and the slider had zero effect over this bridge. We now read
+  // output_config.effort directly and pass it through FAITHFULLY.
+  //
+  // Copilot's reasoning_effort accepts low/medium/high/xhigh/max (verified live:
+  // those return 200; extra_high/ultracode/minimal return 400). So we forward the
+  // slider value as-is when it's an accepted tier — every notch maps 1:1, honouring
+  // the user's exact choice. Only genuinely-unknown values are coerced to a safe
+  // neighbour so they never 400. Older clients that still send thinking.budget_tokens
+  // fall through to the numeric bucket below.
+  const COPILOT_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+  const ocEffort = req.output_config && typeof req.output_config.effort === "string"
+    ? req.output_config.effort.toLowerCase() : null;
+  if (ocEffort) {
+    // ultracode isn't a Copilot value; Claude Code already collapses it to xhigh,
+    // but guard anyway. Unknown strings fall back to "high" so they never 400.
+    const mapped = COPILOT_EFFORTS.has(ocEffort) ? ocEffort
+      : ocEffort === "ultracode" ? "xhigh"
+      : ocEffort === "extra_high" ? "xhigh"
+      : "high";
+    out.reasoning_effort = mapped;
+    lastEffort = { source: "output_config.effort", requested: ocEffort, effort: mapped, passthrough: mapped === ocEffort, at: Date.now() };
+    dbg(`[Claude] effort: output_config.effort="${ocEffort}" → reasoning_effort="${mapped}"`);
+  } else if (req.thinking && req.thinking.type === "enabled") {
+    // Legacy path: older clients encode effort as thinking.budget_tokens.
+    let b = req.thinking.budget_tokens;
+    if (typeof b === "string") b = parseInt(b, 10);
+    if (typeof b === "number" && !isNaN(b)) {
+      out.reasoning_effort = b <= 4096 ? "low" : b <= 9000 ? "medium" : b <= 16000 ? "high" : "max";
+      lastEffort = { source: "thinking.budget_tokens", budgetTokens: b, effort: out.reasoning_effort, at: Date.now() };
+      dbg(`[Claude] effort: budget_tokens=${b} → reasoning_effort=${out.reasoning_effort}`);
+    } else {
+      lastEffort = { source: "thinking.budget_tokens", budgetTokens: null, effort: "(enabled but no numeric budget)", at: Date.now(), raw: JSON.stringify(req.thinking) };
+    }
+  } else {
+    lastEffort = { source: "none", effort: "(no effort/thinking sent)", at: Date.now(), raw: JSON.stringify(req.thinking) };
   }
   if (req.tools) {
     out.tools = req.tools.map(t => ({
@@ -962,12 +1033,48 @@ function openAIToAnthropicResponse(oai, model) {
     usage: {
       input_tokens: (oai.usage && oai.usage.prompt_tokens) || 0,
       output_tokens: (oai.usage && oai.usage.completion_tokens) || 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
     },
   };
 }
 
+// Rough input-token estimate from an Anthropic request body. Copilot only
+// reports usage at the END of a stream, but Claude Code reads
+// message_start.usage.input_tokens to draw its context-window ring the moment a
+// turn begins. Seeding message_start with this estimate makes the ring appear
+// (and stay roughly accurate); the exact count from upstream corrects it at the
+// end. Shared with the /count_tokens endpoint so both agree.
+//
+// Divisor: measured against real Copilot prompt_tokens on live payloads —
+// 104ch→44tok, 9010ch→3613tok, 142010ch→70013tok — i.e. ~2.0–2.5 chars/token
+// for Claude Code traffic (o200k_base on prose + JSON tool schemas). The old
+// char/4 under-counted by ~40–50%, so the ring read half-empty and Claude Code
+// mistimed auto-compaction. 2.5 hugs the real counts without over-counting.
+function estimateInputTokens(body) {
+  let chars = 0;
+  if (typeof body.system === "string") chars += body.system.length;
+  else if (Array.isArray(body.system)) chars += body.system.reduce((n, b) => n + (b.text || "").length, 0);
+  if (Array.isArray(body.tools)) {
+    for (const t of body.tools) {
+      chars += (t.name || "").length + (t.description || "").length;
+      if (t.input_schema) chars += JSON.stringify(t.input_schema).length;
+    }
+  }
+  for (const m of body.messages || []) {
+    if (typeof m.content === "string") chars += m.content.length;
+    else for (const b of m.content || []) {
+      if (b.type === "text") chars += (b.text || "").length;
+      else if (b.type === "image") chars += 4000;
+      else if (b.type === "tool_use") chars += JSON.stringify(b.input || {}).length + (b.name || "").length;
+      else if (b.type === "tool_result") chars += (typeof b.content === "string" ? b.content : JSON.stringify(b.content || "")).length;
+    }
+  }
+  return Math.max(1, Math.ceil(chars / 2.5));
+}
+
 // SSE translator: parses OpenAI delta stream and emits Anthropic events
-function makeStreamTranslator(model, write) {
+function makeStreamTranslator(model, write, estInputTokens) {
   const msgId = `msg_${Date.now()}`;
   let started = false;
   // Dynamic block-index allocator. Anthropic requires content blocks to be
@@ -978,7 +1085,7 @@ function makeStreamTranslator(model, write) {
   let thinkingIndex = -1, thinkingOpen = false, sigSent = false, pendingSig = null;
   let textIndex = -1, textBlockOpen = false;
   let toolBlocks = {}; // openai tool index -> { anthIndex, id, name, jsonBuf }
-  let inputTokens = 0, outputTokens = 0;
+  let inputTokens = estInputTokens || 0, outputTokens = 0;
   let stopReason = "end_turn";
   let buffer = "";
 
@@ -994,7 +1101,10 @@ function makeStreamTranslator(model, write) {
       message: {
         id: msgId, type: "message", role: "assistant", model,
         content: [], stop_reason: null, stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 },
+        // cache_* fields must be present (even as 0): Claude Code's context-ring
+        // math sums input+cache_creation+cache_read with NO null-guard, so a
+        // missing field makes the sum NaN and the ring silently fails to render.
+        usage: { input_tokens: estInputTokens || 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
     });
   }
@@ -1103,7 +1213,7 @@ function makeStreamTranslator(model, write) {
       send("message_delta", {
         type: "message_delta",
         delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       });
       send("message_stop", { type: "message_stop" });
     },
@@ -1124,29 +1234,8 @@ const claudeProxy = http.createServer(async (req, res) => {
     for await (const c of req) chunks.push(c);
     let body = {};
     try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch {}
-    let chars = 0;
-    if (typeof body.system === "string") chars += body.system.length;
-    else if (Array.isArray(body.system)) chars += body.system.reduce((n, b) => n + (b.text || "").length, 0);
-    // Tool DEFINITIONS are part of the prompt and can be 10-20K tokens in Claude
-    // Code (its toolset is large). Omitting them made the estimate skew badly low,
-    // which mis-triggers auto-compaction / context-overflow in Claude Code.
-    if (Array.isArray(body.tools)) {
-      for (const t of body.tools) {
-        chars += (t.name || "").length + (t.description || "").length;
-        if (t.input_schema) chars += JSON.stringify(t.input_schema).length;
-      }
-    }
-    for (const m of body.messages || []) {
-      if (typeof m.content === "string") chars += m.content.length;
-      else for (const b of m.content || []) {
-        if (b.type === "text") chars += (b.text || "").length;
-        else if (b.type === "image") chars += 4000; // rough flat cost so images aren't counted as zero
-        else if (b.type === "tool_use") chars += JSON.stringify(b.input || {}).length + (b.name || "").length;
-        else if (b.type === "tool_result") chars += (typeof b.content === "string" ? b.content : JSON.stringify(b.content || "")).length;
-      }
-    }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ input_tokens: Math.max(1, Math.ceil(chars / 4)) }));
+    res.end(JSON.stringify({ input_tokens: estimateInputTokens(body) }));
     return;
   }
   // GET /v1/models — list available Claude models in Claude-Code-compatible ids
@@ -1234,6 +1323,10 @@ const claudeProxy = http.createServer(async (req, res) => {
     }, (upstreamRes) => {
       dbg(`[Claude] upstream model=${model} status=${upstreamRes.statusCode} stream=${isStream}`);
       if (upstreamRes.statusCode !== 200) {
+        // An expired/invalid Copilot token comes back as 401 (surfaced upstream as
+        // "Not a valid API key for this workspace"). Drop the cached token so the
+        // very next request re-fetches a fresh one instead of failing again.
+        if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
         const errChunks = [];
         upstreamRes.on("data", d => errChunks.push(d));
         upstreamRes.on("end", () => {
@@ -1258,9 +1351,26 @@ const claudeProxy = http.createServer(async (req, res) => {
       }
       if (isStream) {
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" });
-        const trans = makeStreamTranslator(model, c => res.write(c));
+        const trans = makeStreamTranslator(model, c => res.write(c), estimateInputTokens(anthropicReq));
+        let finished = false;
+        // Close the SSE stream exactly once, always leaving Claude Code with a
+        // well-formed message_delta + message_stop. Without this, a mid-stream
+        // upstream drop (idle timeout, proxy/NAT reset, network blip on a long
+        // "thinking" turn) leaves the response dangling and the client reports
+        // "Connection closed mid-response."
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          try { trans.end(); } catch {}
+          try { res.end(); } catch {}
+        };
         upstreamRes.on("data", d => trans.feed(d));
-        upstreamRes.on("end", () => { trans.end(); res.end(); });
+        upstreamRes.on("end", finish);
+        upstreamRes.on("error", (e) => { dbg(`[Claude] upstream stream error: ${e.message}`); finish(); });
+        upstreamRes.on("aborted", () => { dbg("[Claude] upstream stream aborted"); finish(); });
+        // If Claude Code hangs up first, tear down the upstream so the socket
+        // isn't leaked and no further writes hit a closed response.
+        res.on("close", () => { finished = true; try { upstreamRes.destroy(); } catch {} });
       } else {
         const chunks = [];
         upstreamRes.on("data", d => chunks.push(d));
@@ -1315,6 +1425,22 @@ const ui = http.createServer(async (req, res) => {
     lastHeartbeat = Date.now();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
+  // Explicit "the window was really closed" signal, sent by the UI via
+  // navigator.sendBeacon on pagehide. This replaces the old heartbeat-timeout
+  // watchdog, which could not tell a genuinely-closed window from one that Edge
+  // merely FROZE in the background (Efficiency Mode / sleeping tabs) — the frozen
+  // window stops sending heartbeats, so the bridge used to kill itself while the
+  // user was still working, producing ConnectionRefused. A frozen window does NOT
+  // fire pagehide, so relying on this beacon lets the bridge survive minimization.
+  if (req.method === "POST" && req.url === "/api/closing") {
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true }));
+    if (!process.argv.includes("--no-open")) {
+      log("[Bridge] Window closed, shutting down");
+      cleanupOnExit();
+      setTimeout(() => process.exit(0), 50);
+    }
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/focus") {
     focusAppWindow();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
@@ -1324,7 +1450,7 @@ const ui = http.createServer(async (req, res) => {
     // Expose the raw Copilot id (dot format) as the value so override sends exactly what Copilot expects.
     try { claudeModels = (await getClaudeCodeFacingModels()).map(m => ({ id: m._copilot, name: m.name })); } catch {}
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, claudeModelOverride, claudeModels })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, lastEffort, claudeModelOverride, claudeModels })); return;
   }
   if (req.method === "POST" && req.url === "/api/set-claude-model") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
@@ -1429,18 +1555,14 @@ testReq.on("error", () => {
     log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
     await loadSession();
     openBrowser();
-    // Heartbeat-based shutdown: exit when browser window is closed
-    if (!process.argv.includes("--no-open")) {
-      // Give window 10s to load before we start watching heartbeat
-      setTimeout(() => { lastHeartbeat = Date.now(); }, 10000);
-      setInterval(() => {
-        if (lastHeartbeat > 0 && Date.now() - lastHeartbeat > 5000) {
-          log("[Bridge] Window closed, shutting down");
-          cleanupOnExit();
-          process.exit(0);
-        }
-      }, 1000);
-    }
+    // Shutdown is now driven by an explicit /api/closing beacon the UI sends on
+    // genuine window close (see the route above). We deliberately no longer kill
+    // the bridge on a heartbeat gap: Edge/Windows freezes backgrounded windows
+    // (0 K working set), which stalls the heartbeat and used to make the bridge
+    // commit suicide mid-session → ConnectionRefused. Surviving a frozen window
+    // is far more important than promptly reaping a force-killed one (the latter
+    // just lingers on localhost and is reused by the single-instance guard on the
+    // next launch).
   });
 });
 testReq.end();
