@@ -747,6 +747,25 @@ async function mapClaudeModel(requested) {
 }
 
 // ─── Codex proxy server (OpenAI passthrough) ──────────────────────────────
+
+// Copilot signals a dead/expired token in two different ways: HTTP 401, or HTTP
+// 400 whose body says the key is invalid. Only the latter is ambiguous — plenty
+// of legitimate client errors are also 400 (bad model id, invalid
+// reasoning.effort, oversized payload). Retrying THOSE is pure waste: it burns a
+// token mint, re-uploads the entire body, doubles the latency, and can bury the
+// real error message. So the 400-retry is gated on the body actually looking
+// like an auth failure.
+function isAuthFailureBody(body) {
+  if (!body) return false;
+  const s = String(body).toLowerCase();
+  return s.includes("not a valid api key")
+    || s.includes("authorization header is badly formatted")
+    || s.includes("invalid api key")
+    || s.includes("bad credentials")
+    || s.includes("token expired")
+    || s.includes("unauthorized");
+}
+
 const proxy = http.createServer(async (req, res) => {
   if (!githubToken || !codexEnabled) {
     res.writeHead(401, { "Content-Type": "application/json" });
@@ -757,11 +776,20 @@ const proxy = http.createServer(async (req, res) => {
   // Copilot doesn't expose this endpoint, so return a static list of the
   // models Copilot actually supports via the Responses API.
   if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
-    // Only models Copilot's Responses API actually accepts (probed empirically).
+    // Only models Copilot's Responses API actually accepts. Re-probed against the
+    // live API: every id below returns 200 on POST /v1/responses. The previously
+    // advertised "gpt-5.2" and "gpt-5.2-codex" have been RETIRED upstream (400
+    // "model is not supported" / "not available for integrator") — offering them
+    // in the picker meant a user could select a model that fails every turn.
+    // Non-OpenAI models in Copilot's catalog were being withheld even though they
+    // work fine here: grok-4.5/4.6 and mai-code-1.1-flash all return 200 on
+    // POST /v1/responses (re-probed live). The gemini-* entries in the catalog do
+    // NOT ("does not support Responses API"), so they stay out.
     const models = [
-      "gpt-5.2-codex", "gpt-5.3-codex",
-      "gpt-5.2", "gpt-5.4", "gpt-5.5",
+      "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra",
+      "gpt-5.5", "gpt-5.4", "gpt-5.3-codex",
       "gpt-5.4-mini", "gpt-5-mini",
+      "grok-4.6", "grok-4.5", "mai-code-1.1-flash",
     ];
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -773,16 +801,22 @@ const proxy = http.createServer(async (req, res) => {
   const bodyChunks = [];
   for await (const chunk of req) bodyChunks.push(chunk);
   let bodyBuf = Buffer.concat(bodyChunks);
-  // Map legacy / canonical model ids Codex sends to ones Copilot's Responses API accepts.
+  // Map legacy / canonical model ids Codex sends to ones Copilot's Responses API accepts,
+  // and clamp reasoning.effort to what the CHOSEN model actually supports.
   // Codex defaults to "gpt-5-codex" / "gpt-5" which Copilot rejects — translate to a
-  // versioned sibling. Body is mutated only when model field is present and recognized.
+  // versioned sibling. Body is mutated only when a field actually needs rewriting.
   if (req.method === "POST" && bodyBuf.length && req.url.includes("/responses")) {
     try {
       const j = JSON.parse(bodyBuf.toString());
+      let dirty = false;
       if (j.model) {
         const codexModelMap = {
           "gpt-5": "gpt-5.5",
-          "gpt-5-codex": "gpt-5.2-codex",
+          // gpt-5.2-codex was RETIRED upstream — mapping Codex's canonical default
+          // there made every request 400. 5.3-codex is the live codex-tuned model.
+          "gpt-5-codex": "gpt-5.3-codex",
+          "gpt-5.2-codex": "gpt-5.3-codex",
+          "gpt-5.2": "gpt-5.5",
           "gpt-4.1": "gpt-5.4",     // 4.1 family not in Responses API; use closest 5.x
           "gpt-4o": "gpt-5.4",
           "gpt-4o-mini": "gpt-5.4-mini",
@@ -792,10 +826,52 @@ const proxy = http.createServer(async (req, res) => {
         const original = j.model;
         if (codexModelMap[j.model]) {
           j.model = codexModelMap[j.model];
-          bodyBuf = Buffer.from(JSON.stringify(j));
+          dirty = true;
           log(`[Codex] model ${original} → ${j.model}`);
         }
       }
+      // Reasoning effort clamp. Codex CLI happily writes any string into
+      // model_reasoning_effort (e.g. "ultra"), and each Copilot model accepts a
+      // DIFFERENT subset — verified live:
+      //   gpt-5.6-sol/luna/terra : none low medium high xhigh max
+      //   gpt-5.5/5.4/5.3-codex/5.4-mini : none low medium high xhigh   (no max)
+      //   gpt-5-mini             : minimal low medium high              (no none/xhigh/max)
+      //   grok-4.5/4.6           : minimal low medium high xhigh        (no none/max)
+      //   mai-code-1.1-flash     : minimal low medium high              (no none/xhigh/max)
+      // An unsupported value is a hard 400 on EVERY turn, which reads to the user as
+      // "Codex is broken". Coerce to the nearest tier the selected model supports.
+      // Note the non-OpenAI models reject "none" outright — a client asking for no
+      // reasoning lands on "minimal", the closest thing they actually accept.
+      if (j.reasoning && typeof j.reasoning.effort === "string") {
+        const m = String(j.model || "");
+        const tiers = /^gpt-5\.6/.test(m)
+          ? ["none", "low", "medium", "high", "xhigh", "max"]
+          : /^(gpt-5-mini|mai-code)/.test(m)
+            ? ["minimal", "low", "medium", "high"]
+            : /^grok-/.test(m)
+              ? ["minimal", "low", "medium", "high", "xhigh"]
+              : ["none", "low", "medium", "high", "xhigh"];
+        const want = j.reasoning.effort.toLowerCase();
+        if (!tiers.includes(want)) {
+          // Rank unknown/aspirational names so they land on the closest real tier
+          // rather than failing: ultra/max-like → highest available, etc.
+          const rank = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, extra_high: 5, ultracode: 5, max: 6, ultra: 6, maximum: 6, highest: 6 };
+          const r = rank[want] !== undefined ? rank[want] : 4;
+          // Round DOWN to the nearest supported tier, but never silently land on
+          // "none" for someone who explicitly asked for SOME thinking — that would
+          // switch reasoning off entirely. Only a literal "none" means none.
+          let pick = null;
+          for (const t of tiers) if (rank[t] <= r) pick = t;
+          if (r > 0 && (pick === null || pick === "none")) {
+            pick = tiers.find(t => rank[t] > 0) || tiers[tiers.length - 1];
+          }
+          if (pick === null) pick = tiers[0];
+          log(`[Codex] reasoning.effort "${j.reasoning.effort}" not valid for ${m} → "${pick}"`);
+          j.reasoning = { ...j.reasoning, effort: pick };
+          dirty = true;
+        }
+      }
+      if (dirty) bodyBuf = Buffer.from(JSON.stringify(j));
     } catch {}
   }
   try {
@@ -819,19 +895,49 @@ const proxy = http.createServer(async (req, res) => {
       hostname: COPILOT_API, path: p, method: req.method, headers,
     }, (upstreamRes) => {
       dbg(`[Codex] ${req.method} ${p} → ${upstreamRes.statusCode}`);
-      // An expired/invalid Copilot token comes back as 401 OR as 400 with
-      // "Not a valid API key for this workspace". Clear on both, else the dead
-      // token stays cached and every later request keeps failing.
-      const authish = upstreamRes.statusCode === 401 || upstreamRes.statusCode === 400;
-      if (authish) { copilotToken = null; copilotTokenExpiry = 0; }
-      if (authish && attempt === 0) {
+      // 401 is always auth. A 400 is only auth-related when it carries the
+      // "not a valid API key" / "Authorization header is badly formatted" text —
+      // every other 400 (bad model, invalid reasoning.effort, oversized body) is a
+      // real client error. Treating ALL 400s as auth used to nuke the token cache
+      // and re-upload the whole request (images included) for nothing, doubling
+      // latency on errors that could never succeed. So peek at the body first.
+      if (upstreamRes.statusCode === 401 && attempt === 0) {
         upstreamRes.resume(); // drain; we replay instead of surfacing this
-        log(`[Codex] token rejected (${upstreamRes.statusCode}) — refreshing and retrying once`);
+        copilotToken = null; copilotTokenExpiry = 0;
+        log(`[Codex] token rejected (401) — refreshing and retrying once`);
         sendCodex(1).catch(e => {
           try { res.writeHead(502, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: e.message })); } catch {}
         });
         return;
+      }
+      if (upstreamRes.statusCode === 400 && attempt === 0) {
+        // Buffer the (small) error body so we can tell auth-400 from client-400.
+        const eb = [];
+        upstreamRes.on("data", d => eb.push(d));
+        upstreamRes.on("end", () => {
+          const body = Buffer.concat(eb).toString();
+          if (isAuthFailureBody(body)) {
+            copilotToken = null; copilotTokenExpiry = 0;
+            log(`[Codex] token rejected (400) — refreshing and retrying once`);
+            sendCodex(1).catch(e => {
+              try { res.writeHead(502, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: e.message })); } catch {}
+            });
+          } else {
+            // Genuine client error — surface it verbatim, immediately.
+            try {
+              res.writeHead(400, { "Content-Type": upstreamRes.headers["content-type"] || "application/json" });
+              res.end(body);
+            } catch {}
+          }
+        });
+        upstreamRes.on("error", () => { try { res.writeHead(502); res.end(); } catch {} });
+        return;
+      }
+      if (upstreamRes.statusCode === 401 || upstreamRes.statusCode === 400) {
+        // Second attempt still failing — clear the token so the NEXT request re-mints.
+        if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
       }
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
@@ -1354,23 +1460,39 @@ const claudeProxy = http.createServer(async (req, res) => {
         // "Not a valid API key for this workspace" — Copilot uses both. Only
         // clearing on 401 left the dead token cached, so every later request
         // kept failing until the bridge was restarted ("works, then suddenly
-        // 400 forever"). Clear on both, then replay once with a fresh token.
-        const authish = upstreamRes.statusCode === 401 || upstreamRes.statusCode === 400;
-        if (authish) { copilotToken = null; copilotTokenExpiry = 0; }
-        if (authish && attempt === 0) {
+        // 400 forever").
+        //
+        // 401 is unambiguous: clear + replay immediately. A 400 is NOT — bad
+        // model ids, oversized payloads and malformed requests are 400 too, and
+        // replaying those just doubles the latency and can bury the real error.
+        // So for 400 we read the body first and only replay when it actually
+        // reads as an auth failure.
+        if (upstreamRes.statusCode === 401 && attempt === 0) {
           upstreamRes.resume(); // drain, we're replaying instead of surfacing this
-          log(`[Claude] token rejected (${upstreamRes.statusCode}) — refreshing and retrying once`);
+          copilotToken = null; copilotTokenExpiry = 0;
+          log(`[Claude] token rejected (401) — refreshing and retrying once`);
           sendUpstream(1).catch(e => {
             try { res.writeHead(502, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } })); } catch {}
           });
           return;
         }
+        if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
         const errChunks = [];
         upstreamRes.on("data", d => errChunks.push(d));
         upstreamRes.on("end", () => {
           const raw = Buffer.concat(errChunks).toString();
           dbg(`[Claude] upstream error body: ${raw.slice(0, 500)}`);
+          // Auth-flavoured 400: drop the dead token and replay once.
+          if (upstreamRes.statusCode === 400 && attempt === 0 && isAuthFailureBody(raw)) {
+            copilotToken = null; copilotTokenExpiry = 0;
+            log(`[Claude] token rejected (400) — refreshing and retrying once`);
+            sendUpstream(1).catch(e => {
+              try { res.writeHead(502, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } })); } catch {}
+            });
+            return;
+          }
           // Translate Copilot/OpenAI error shape → Anthropic error shape so Claude
           // Code surfaces the real upstream message instead of a generic "model may
           // not exist" string.
