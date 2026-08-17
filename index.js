@@ -799,6 +799,12 @@ const proxy = http.createServer(async (req, res) => {
     } catch {}
   }
   try {
+    // Same 30-minute token expiry problem as the Claude path: a stale Copilot
+    // token answers 401 / 400 "Not a valid API key for this workspace". Passing
+    // that straight through made Codex CLI treat it as an auth failure and
+    // reconnect over and over. Replay once with a fresh token instead — nothing
+    // has been written to the client yet at that point.
+    const sendCodex = async (attempt) => {
     const token = await ensureCopilotToken();
     const p = req.url.startsWith("/v1") ? req.url : `/v1${req.url}`;
     const headers = {
@@ -813,9 +819,20 @@ const proxy = http.createServer(async (req, res) => {
       hostname: COPILOT_API, path: p, method: req.method, headers,
     }, (upstreamRes) => {
       dbg(`[Codex] ${req.method} ${p} → ${upstreamRes.statusCode}`);
-      // An expired/invalid Copilot token comes back as 401; drop the cache so the
-      // next request re-fetches a fresh one instead of failing again.
-      if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
+      // An expired/invalid Copilot token comes back as 401 OR as 400 with
+      // "Not a valid API key for this workspace". Clear on both, else the dead
+      // token stays cached and every later request keeps failing.
+      const authish = upstreamRes.statusCode === 401 || upstreamRes.statusCode === 400;
+      if (authish) { copilotToken = null; copilotTokenExpiry = 0; }
+      if (authish && attempt === 0) {
+        upstreamRes.resume(); // drain; we replay instead of surfacing this
+        log(`[Codex] token rejected (${upstreamRes.statusCode}) — refreshing and retrying once`);
+        sendCodex(1).catch(e => {
+          try { res.writeHead(502, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: e.message })); } catch {}
+        });
+        return;
+      }
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
       // pipe() does not end the destination when the source errors, so a
@@ -827,6 +844,8 @@ const proxy = http.createServer(async (req, res) => {
     upstream.on("error", e => { try { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); } catch {} });
     if (bodyBuf.length) upstream.write(bodyBuf);
     upstream.end();
+    };
+    await sendCodex(0);
   } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
 });
 
@@ -1310,6 +1329,14 @@ const claudeProxy = http.createServer(async (req, res) => {
   }
 
   try {
+    // Copilot tokens live only ~30 min. When one goes stale mid-session the API
+    // answers 401 — or 400 "Not a valid API key for this workspace" — and the
+    // request fails in the user's face. Wrap the upstream call so that on those
+    // two statuses we drop the cached token, mint a fresh one and replay the
+    // request ONCE. Nothing has been written to the client at that point (the
+    // error body is only emitted after the upstream response completes), so the
+    // replay is safe for both streaming and non-streaming turns.
+    const sendUpstream = async (attempt) => {
     const token = await ensureCopilotToken();
     const upstream = await upstreamHttpsRequest({
       hostname: COPILOT_API, path: "/chat/completions", method: "POST",
@@ -1323,10 +1350,22 @@ const claudeProxy = http.createServer(async (req, res) => {
     }, (upstreamRes) => {
       dbg(`[Claude] upstream model=${model} status=${upstreamRes.statusCode} stream=${isStream}`);
       if (upstreamRes.statusCode !== 200) {
-        // An expired/invalid Copilot token comes back as 401 (surfaced upstream as
-        // "Not a valid API key for this workspace"). Drop the cached token so the
-        // very next request re-fetches a fresh one instead of failing again.
-        if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
+        // An expired/invalid Copilot token comes back as 401 OR as 400 with
+        // "Not a valid API key for this workspace" — Copilot uses both. Only
+        // clearing on 401 left the dead token cached, so every later request
+        // kept failing until the bridge was restarted ("works, then suddenly
+        // 400 forever"). Clear on both, then replay once with a fresh token.
+        const authish = upstreamRes.statusCode === 401 || upstreamRes.statusCode === 400;
+        if (authish) { copilotToken = null; copilotTokenExpiry = 0; }
+        if (authish && attempt === 0) {
+          upstreamRes.resume(); // drain, we're replaying instead of surfacing this
+          log(`[Claude] token rejected (${upstreamRes.statusCode}) — refreshing and retrying once`);
+          sendUpstream(1).catch(e => {
+            try { res.writeHead(502, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } })); } catch {}
+          });
+          return;
+        }
         const errChunks = [];
         upstreamRes.on("data", d => errChunks.push(d));
         upstreamRes.on("end", () => {
@@ -1384,10 +1423,12 @@ const claudeProxy = http.createServer(async (req, res) => {
         });
       }
     });
-    upstream.on("error", e => { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); });
+    upstream.on("error", e => { try { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); } catch {} });
     upstream.write(JSON.stringify(oaiReq));
     upstream.end();
-  } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    };
+    await sendUpstream(0);
+  } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
 });
 
 // ─── UI server ─────────────────────────────────────────────────────────────
