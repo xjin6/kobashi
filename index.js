@@ -86,6 +86,19 @@ function openAppWindow(url) {
 
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const COPILOT_API = "api.githubcopilot.com";
+// Version + release date shown in the UI footer. The footer used to hard-code
+// these in ui.html, which silently drifted from package.json (v1.9.2 shipped
+// still displaying "v1.9.1"). Read from package.json when running from source;
+// pkg has no package.json at runtime, so scripts/build-*.sh stamps the literals
+// below at build time. Either way there is exactly one source of truth per build.
+let APP_VERSION = "0.0.0", APP_DATE = "";
+/* BUILD_STAMP */
+if (APP_VERSION === "0.0.0") {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf-8"));
+    APP_VERSION = pkg.version || APP_VERSION;
+  } catch {}
+}
 const PROXY_PORT = 18921;
 const UI_PORT = 18922;
 const CLAUDE_PORT = 18923;
@@ -1613,7 +1626,7 @@ const ui = http.createServer(async (req, res) => {
     // Expose the raw Copilot id (dot format) as the value so override sends exactly what Copilot expects.
     try { claudeModels = (await getClaudeCodeFacingModels()).map(m => ({ id: m._copilot, name: m.name })); } catch {}
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, lastEffort, claudeModelOverride, claudeModels })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, lastEffort, claudeModelOverride, claudeModels, version: APP_VERSION, releaseDate: APP_DATE })); return;
   }
   if (req.method === "POST" && req.url === "/api/set-claude-model") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }

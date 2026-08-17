@@ -3,7 +3,25 @@ set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
 BINARY="kobashi"
-VERSION="1.9.2"
+VERSION="2.0.0"
+RELEASE_DATE="$(date +%Y-%m-%d)"
+
+# Stamp version + date into index.js. pkg has no package.json at runtime, so the
+# UI footer would otherwise fall back to "0.0.0". Restored on exit (incl. failure)
+# so the working tree is never left modified.
+STAMP_BAK="$(mktemp)"
+cp index.js "$STAMP_BAK"
+restore_stamp() { cp "$STAMP_BAK" index.js; rm -f "$STAMP_BAK"; }
+trap restore_stamp EXIT
+node -e "
+const fs=require('fs');let s=fs.readFileSync('index.js','utf8');
+const before=s;
+const v=process.argv[1], d=process.argv[2];
+s=s.replace('/* BUILD_STAMP */', 'APP_VERSION = '+JSON.stringify(v)+'; APP_DATE = '+JSON.stringify(d)+';');
+if (s===before) { console.error('ERROR: BUILD_STAMP marker not found in index.js'); process.exit(1); }
+fs.writeFileSync('index.js',s);
+" "$VERSION" "$RELEASE_DATE" || exit 1
+echo "==> Stamped v${VERSION} (${RELEASE_DATE})"
 
 echo "==> Building Windows binary..."
 mkdir -p dist

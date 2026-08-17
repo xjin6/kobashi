@@ -203,7 +203,7 @@
       </details>
     </div>
   </div>
-  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; v1.9.1 &middot; 2026-07-01</div>
+  <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; <span id="ver">&nbsp;</span></div>
 </div>
 
 <script>
@@ -280,6 +280,9 @@ function renderStatus(d){
   sel.value=cur;
 }
 fetch('/api/status').then(r=>r.json()).then(d=>{
+  // Footer version comes from the server (package.json / build stamp) so it can
+  // never drift from the actual build the way the old hard-coded string did.
+  if(d.version){var v=document.getElementById('ver');v.textContent='v'+d.version+(d.releaseDate?' · '+d.releaseDate:'')}
   if(d.connected){document.getElementById('username').textContent='@'+d.username;setToggle('codex',d.codexEnabled);setToggle('claude',d.claudeEnabled);show('connected');renderStatus(d)}
   else show('idle');
 });
