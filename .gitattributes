@@ -1,0 +1,21 @@
+# Normalize all text files to LF in the repository and in the working tree.
+#
+# This repo lives in a OneDrive folder and is edited from both macOS and
+# Windows machines. Without this, a file saved on Windows syncs back with CRLF
+# endings and shows up as an entire-file diff (every line deleted and re-added)
+# that hides any real change underneath. `eol=lf` — not just `text=auto` — is
+# what keeps the checkout itself LF on Windows, so the round trip is a no-op.
+#
+# The shell scripts additionally *require* LF: bash chokes on `\r` in build
+# scripts, so CRLF there would break scripts/build-*.sh outright.
+* text=auto eol=lf
+
+# Binary assets: never touch these. Git's auto-detection already classifies
+# them correctly, but naming them explicitly means a stray edit or a new
+# detection heuristic can't corrupt an icon or a screenshot by "fixing"
+# byte sequences that merely look like line endings.
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.exe binary
