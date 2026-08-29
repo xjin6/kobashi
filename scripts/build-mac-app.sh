@@ -4,7 +4,9 @@ cd "$(dirname "$0")/.."   # always run from repo root
 
 APP_NAME="Kobashi"
 BUNDLE_ID="com.xjin6.kobashi"
-VERSION="2.0.0"
+# Single source of truth: package.json. Hard-coding it here as well is what let
+# v1.9.2 ship displaying "v1.9.1" — two copies, only one of them bumped.
+VERSION="$(node -p "require('./package.json').version")"
 BINARY="kobashi"
 RELEASE_DATE="$(date +%Y-%m-%d)"
 

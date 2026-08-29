@@ -10,9 +10,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        setUpMainMenu()
         startServer()
         createWindow()
         pollAndLoad()
+    }
+
+    // macOS routes Cmd-C/V/X/A through the main menu's key equivalents, NOT through
+    // the focused control. An app with no menu bar therefore has no working clipboard
+    // shortcuts anywhere in it — including inside a WKWebView text field, which looks
+    // to the user like the field itself is broken.
+    //
+    // This went unnoticed while the UI had no text input. The token field is the first,
+    // and pasting is the ONLY way anyone will ever fill it: the token is 40 random
+    // characters that nobody types by hand.
+    //
+    // Passing nil targets lets each action follow the responder chain to whatever is
+    // focused, so the same menu serves the web view without any per-control wiring.
+    func setUpMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About Kobashi", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide Kobashi", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit Kobashi", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
     }
 
     func startServer() {
@@ -66,6 +110,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView!.addSubview(label)
 
         window.makeKeyAndOrderFront(nil)
+        // Without this the web view never becomes first responder, so clipboard
+        // actions have nothing to travel the responder chain to.
+        window.makeFirstResponder(webView)
         NSApp.activate(ignoringOtherApps: true)
     }
 

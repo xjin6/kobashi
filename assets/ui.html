@@ -48,20 +48,31 @@
   .user-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px 4px 4px;background:var(--badge-bg);border:1px solid var(--badge-border);border-radius:20px;font-size:13px;color:var(--badge-color)}
   .btn-disconnect{background:transparent;border:1px solid var(--disconnect-border);color:var(--disconnect-color);font-size:12px;padding:6px 14px;border-radius:8px}
   .btn-disconnect:hover{background:rgba(248,81,73,.1);border-color:var(--disconnect-color)}
-  .env-box{background:var(--env-bg);border:1px solid var(--env-border);border-radius:8px;padding:12px 14px;font-family:"SF Mono",Consolas,monospace;font-size:11px;line-height:2;color:var(--muted);margin-top:8px;transition:all .3s}
-  .env-box .key{color:var(--env-key)}
-  .env-box .val{color:var(--env-val)}
-  .warn{color:#d29922}
-  .select-wrap{position:relative;width:100%}
-  .select-wrap select{width:100%;appearance:none;-webkit-appearance:none;background:var(--code-bg);border:1px solid var(--card-border);color:var(--fg);font-size:12px;font-family:"SF Mono",Consolas,monospace;padding:6px 28px 6px 10px;border-radius:6px;outline:none;cursor:pointer;transition:border-color .15s}
-  .select-wrap select:hover{border-color:var(--accent1)}
-  .select-wrap select:focus{border-color:var(--accent1)}
-  .select-arrow{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)}
   .section-title{font-size:11px;color:var(--muted);margin-top:20px;margin-bottom:8px}
   .fade-in{animation:fadeIn .4s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .alt-row{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+  .linkbtn{color:var(--accent1);text-decoration:none;font-size:12px;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;transition:color .2s}
+  .linkbtn:hover{color:var(--accent2);text-decoration:underline}
+  .input{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--code-border);background:var(--code-bg);color:var(--fg);font-size:13px;font-family:"SF Mono",Consolas,monospace;transition:all .2s;outline:none}
+  .input::placeholder{color:var(--muted);opacity:.6}
+  .input:focus{border-color:var(--btn-hover-border);box-shadow:var(--btn-hover-glow)}
+  .input.bad{border-color:var(--disconnect-border)}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  .btn:disabled:hover{background:var(--btn-bg);border-color:var(--btn-border);box-shadow:none}
+  .err{display:none;gap:7px;align-items:flex-start;font-size:12px;color:var(--disconnect-color);background:rgba(248,81,73,.08);border:1px solid var(--disconnect-border);border-radius:9px;padding:9px 11px;margin-top:10px;line-height:1.5;text-align:left}
+  .err.show{display:flex}
+  [data-theme="light"] .err{background:rgba(220,38,38,.06)}
+  .err svg{flex-shrink:0;margin-top:1px}
   #view-idle,#view-waiting,#view-connected{display:none}
-  #view-idle{position:absolute;inset:0;z-index:1;justify-content:center;align-items:center;padding:0 32px}
+  /* The token field lives inside the idle view rather than on a screen of its
+     own: it is one input and one button, and a whole extra view for that made
+     the friend-facing path feel longer than the flow it replaces. Hidden until
+     the link is clicked so the default screen stays exactly as it was. */
+  #token-area{display:none;width:100%;max-width:280px;margin-top:14px;flex-direction:column}
+  #token-area.open{display:flex}
+  #token-area .btn{margin-top:10px;width:100%;justify-content:center}
+  #view-idle{position:absolute;inset:0;z-index:1;flex-direction:column;justify-content:center;align-items:center;padding:0 32px}
   #view-waiting{position:absolute;inset:0;z-index:1;flex-direction:column;justify-content:center;padding:0 32px}
   #view-connected{flex:1}
   .logo,.sub{position:relative;z-index:2}
@@ -76,13 +87,6 @@
   .bridge-logo img{width:24px;height:24px;object-fit:contain}
   .bridge-logo.claude{color:#d97757}
   .panel-row-left{display:flex;align-items:center;gap:12px}
-  details.panel-config{margin-top:14px;border-top:1px solid var(--panel-border);margin-left:-18px;margin-right:-18px;margin-bottom:-18px;transition:all .3s}
-  details.panel-config > summary{list-style:none;cursor:pointer;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);user-select:none}
-  details.panel-config > summary::-webkit-details-marker{display:none}
-  details.panel-config > summary .chev{transition:transform .2s;display:inline-flex}
-  details.panel-config[open] > summary .chev{transform:rotate(90deg)}
-  details.panel-config > summary:hover{color:var(--fg)}
-  details.panel-config .env-box{margin:0;border:none;border-top:1px solid var(--panel-border);border-radius:0 0 12px 12px;background:var(--code-bg)}
 </style>
 </head>
 <body>
@@ -111,6 +115,15 @@
       <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       Connect with GitHub
     </button>
+    <div class="alt-row" id="token-teaser">Have an access token? <button class="linkbtn" onclick="revealToken()">Paste it instead</button></div>
+    <div id="token-area">
+      <input class="input" id="token-input" type="password" placeholder="Paste your access token" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="onTokenType()" onkeydown="if(event.key==='Enter')submitToken()"/>
+      <button class="btn" id="token-submit" onclick="submitToken()" disabled>Connect</button>
+      <div class="err" id="token-err">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9 3a1 1 0 11-2 0 1 1 0 012 0zm-.25-6.25a.75.75 0 00-1.5 0v3.5a.75.75 0 001.5 0z"/></svg>
+        <span id="token-errmsg"></span>
+      </div>
+    </div>
   </div>
 
   <div id="view-waiting" class="fade-in">
@@ -150,28 +163,6 @@
         </div>
         <div class="toggle" id="claude-toggle" onclick="toggleClaude()"><div class="knob"></div></div>
       </div>
-      <details class="panel-config" id="claude-config">
-        <summary>
-          <span>Configuration</span>
-          <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
-        </summary>
-        <div class="env-box">
-          <span class="key">ANTHROPIC_BASE_URL</span>=<span class="val">http://127.0.0.1:{{CLAUDE_PORT}}</span><br/>
-          <span class="key">ANTHROPIC_AUTH_TOKEN</span>=<span class="val">PROXY_MANAGED</span><br/>
-          <span style="color:#484f58">Auto-injected to ~/.claude/settings.json &middot; Restart terminal</span>
-        </div>
-        <div style="margin-top:10px;border-top:1px solid var(--card-border);padding-top:10px">
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Active Model</div>
-          <div id="model-map" style="font-size:12px;color:var(--fg);margin-bottom:8px">—</div>
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Model Override</div>
-          <div class="select-wrap">
-            <select id="model-override-select" onchange="setModelOverride(this.value)">
-              <option value="">Use models from VSCode</option>
-            </select>
-            <svg class="select-arrow" width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"/></svg>
-          </div>
-        </div>
-      </details>
     </div>
 
     <div class="panel" style="margin-top:12px">
@@ -190,17 +181,6 @@
         </div>
         <div class="toggle" id="codex-toggle" onclick="toggleCodex()"><div class="knob"></div></div>
       </div>
-      <details class="panel-config">
-        <summary>
-          <span>Configuration</span>
-          <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
-        </summary>
-        <div class="env-box">
-          <span class="key">OPENAI_BASE_URL</span>=<span class="val">http://127.0.0.1:{{PROXY_PORT}}/v1</span><br/>
-          <span class="key">OPENAI_API_KEY</span>=<span class="val">PROXY_MANAGED</span><br/>
-          <span style="color:#484f58">Auto-injected to ~/.codex/ &middot; Restart terminal</span>
-        </div>
-      </details>
     </div>
   </div>
   <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; <span id="ver">&nbsp;</span></div>
@@ -209,13 +189,53 @@
 <script>
 const sunSVG='<path d="M8 1a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 018 1zm0 10a3 3 0 100-6 3 3 0 000 6zm0-1.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5.657-5.157a.75.75 0 010 1.06l-1.06 1.061a.75.75 0 11-1.061-1.06l1.06-1.061a.75.75 0 011.061 0zM15 8a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5A.75.75 0 0115 8zm-2.343 5.657a.75.75 0 01-1.06 0l-1.061-1.06a.75.75 0 111.06-1.061l1.061 1.06a.75.75 0 010 1.061zM8 15a.75.75 0 01-.75-.75v-1.5a.75.75 0 011.5 0v1.5A.75.75 0 018 15zm-5.657-2.343a.75.75 0 010-1.06l1.06-1.061a.75.75 0 111.061 1.06l-1.06 1.061a.75.75 0 01-1.061 0zM1 8a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5A.75.75 0 011 8zm2.343-5.657a.75.75 0 011.06 0l1.061 1.06a.75.75 0 01-1.06 1.061L3.343 3.403a.75.75 0 010-1.06z"/>';
 const moonSVG='<path d="M9.598 1.591a.75.75 0 01.785-.175 7 7 0 11-8.967 8.967.75.75 0 01.961-.96 5.5 5.5 0 007.046-7.046.75.75 0 01.175-.786z"/>';
+const sysLight=window.matchMedia('(prefers-color-scheme:light)');
+// Painting the theme and REMEMBERING it are two different things, and merging
+// them was the bug: the old applyTheme() wrote to localStorage on every call,
+// including the one during start-up that had just derived the theme from the
+// system. One launch was therefore enough to pin the theme forever, so macOS's
+// light/dark switch stopped reaching a window that had never been told to
+// override anything. Now only an explicit click persists a choice.
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(_){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(_){} }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(_){} }
+
+// Upgrade path. Every existing install already has a 'theme' value that the old
+// code wrote automatically at start-up, so reading it as a deliberate choice
+// would keep those users pinned exactly as before and this fix would appear to
+// do nothing. A manual choice is now recorded with its own 'themeManual' flag,
+// which the old build never wrote — so a 'theme' with no flag beside it is
+// provably auto-written, and gets cleared once.
+(function(){
+  if(lsGet('theme')!==null && lsGet('themeManual')===null) lsDel('theme');
+})();
+
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
   document.getElementById('theme-icon').innerHTML=t==='light'?sunSVG:moonSVG;
-  localStorage.setItem('theme',t);
 }
-function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
-(function(){const s=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');applyTheme(s)})();
+function systemTheme(){return sysLight.matches?'light':'dark'}
+// A stored value means "the user overrode the system"; absent means "follow it".
+function currentTheme(){
+  const saved=lsGet('theme');
+  return saved==='light'||saved==='dark'?saved:systemTheme();
+}
+function toggleTheme(){
+  const next=currentTheme()==='light'?'dark':'light';
+  // Toggling back to what the system already shows is read as "stop overriding",
+  // so the button is also the way out of a manual choice — without this the
+  // first click would silently opt you out of system-following for good.
+  if(next===systemTheme()){ lsDel('theme'); lsDel('themeManual'); }
+  else { lsSet('theme',next); lsSet('themeManual','1'); }
+  applyTheme(next);
+}
+// Fires when macOS flips appearance (incl. the automatic sunset switch). Only
+// repaints while the user has no explicit override standing.
+sysLight.addEventListener('change',()=>{
+  const saved=lsGet('theme');
+  if(saved!=='light'&&saved!=='dark') applyTheme(systemTheme());
+});
+applyTheme(currentTheme());
 let pollTimer=null,pollInterval=5000;
 function show(v){['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');document.getElementById('view-'+v).style.display=v==='connected'?'block':'flex'}
 function setToggle(prefix,on){
@@ -248,45 +268,99 @@ async function poll(dc){
   if(d.error==='slow_down')pollInterval+=5000;
   pollTimer=setTimeout(()=>poll(dc),pollInterval);
 }
+// Reveals the field in place instead of navigating. The teaser line is replaced
+// by the input so the screen gains one control rather than becoming a new page.
+function revealToken(open){
+  const area=document.getElementById('token-area');
+  const teaser=document.getElementById('token-teaser');
+  if(open===false){ area.classList.remove('open'); teaser.style.display=''; resetTokenForm(); return; }
+  teaser.style.display='none';
+  area.classList.add('open');
+  setTimeout(()=>document.getElementById('token-input').focus(),50);
+}
+function resetTokenForm(){
+  const i=document.getElementById('token-input');
+  i.value='';i.disabled=false;i.classList.remove('bad');
+  const b=document.getElementById('token-submit');
+  b.disabled=true;b.textContent='Connect';
+  document.getElementById('token-err').classList.remove('show');
+}
+function onTokenType(){
+  const v=document.getElementById('token-input').value.trim();
+  document.getElementById('token-submit').disabled=v.length===0;
+  // Clear the previous failure as soon as the user starts fixing it, so a stale
+  // message never sits above a token they have already corrected.
+  document.getElementById('token-input').classList.remove('bad');
+  document.getElementById('token-err').classList.remove('show');
+}
+// Each failure gets its own sentence because each has a different remedy. The
+// no_copilot case in particular must not read like a bad token: the token is
+// fine, and pasting a different one cannot help.
+const TOKEN_ERRS={
+  invalid_token:"That token isn't valid. Check you copied the whole thing.",
+  no_copilot:"This token works, but the account has no Copilot access. A new token won't help \u2014 the subscription needs checking.",
+  network:"Couldn't reach GitHub. Check your connection and try again.",
+  github_error:"GitHub couldn't verify this token right now. Try again in a moment."
+};
+function tokenFail(reason){
+  const i=document.getElementById('token-input'),b=document.getElementById('token-submit');
+  i.disabled=false;i.classList.add('bad');
+  b.disabled=false;b.textContent='Connect';
+  document.getElementById('token-errmsg').textContent=TOKEN_ERRS[reason]||TOKEN_ERRS.github_error;
+  document.getElementById('token-err').classList.add('show');
+  i.focus();i.select();
+}
+async function submitToken(){
+  const i=document.getElementById('token-input'),b=document.getElementById('token-submit');
+  const token=i.value.trim();
+  if(!token) return;
+  i.disabled=true;b.disabled=true;
+  b.innerHTML='<span class="spinner"></span> Verifying\u2026';
+  document.getElementById('token-err').classList.remove('show');
+  let d;
+  try{
+    const r=await fetch('/api/token-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+    d=await r.json();
+  }catch(_){ tokenFail('network'); return; }
+  if(!d||!d.ok){ tokenFail(d&&d.reason); return; }
+  document.getElementById('username').textContent='@'+d.username;
+  setToggle('codex',true);setToggle('claude',true);
+  show('connected');
+  revealToken(false);
+}
 async function toggleCodex(){
   const r=await fetch('/api/toggle-codex',{method:'POST'});const d=await r.json();setToggle('codex',d.codexEnabled);
 }
 async function toggleClaude(){
   const r=await fetch('/api/toggle-claude',{method:'POST'});const d=await r.json();setToggle('claude',d.claudeEnabled);
 }
-async function disconnect(){await fetch('/api/disconnect',{method:'POST'});show('idle')}
-async function setModelOverride(val){
-  await fetch('/api/set-claude-model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:val||null})});
+async function disconnect(){
+  // The server decides where to land: a token user sent back to the GitHub
+  // button would be stuck, since device flow needs the account holder's password.
+  let next='idle';
+  try{ const d=await(await fetch('/api/disconnect',{method:'POST'})).json(); if(d&&d.next)next=d.next; }catch(_){}
+  show('idle');
+  // A token user sent back to a bare GitHub button would be stuck: device flow
+  // needs the account holder's password. Open the field for them directly.
+  if(next==='token') revealToken(); else revealToken(false);
 }
-function renderStatus(d){
-  if(!d.connected) return;
-  // model-map: show last requested → sent as-is
-  const mm=d.lastModelMap;
-  const map=document.getElementById('model-map');
-  if(mm){
-    let s='Received <b>'+(mm.requested||'—')+'</b> → Sent <b>'+(mm.sent||'—')+'</b>';
-    if(mm.downgraded) s+=' <span class="warn">⚠ '+(mm.note||'downgraded')+'</span>';
-    map.innerHTML=s;
-  }
-  // dropdown: rebuild options when model list changes, preserve current selection
-  const sel=document.getElementById('model-override-select');
-  const cur=d.claudeModelOverride||'';
-  const models=d.claudeModels||[];
-  if(sel.dataset.built!==models.map(m=>m.id).join(',')){
-    sel.innerHTML='<option value="">Use models from VSCode</option>';
-    models.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.id;sel.appendChild(o);});
-    sel.dataset.built=models.map(m=>m.id).join(',');
-  }
-  sel.value=cur;
+// Mirrors server state onto this window. The bridges can be toggled from another
+// window, and a restored session arrives with them already on, so the toggles are
+// read from the server rather than assumed. Callers guard on d.connected: an
+// in-progress device-flow screen must never be repainted as connected.
+function syncStatus(d){
+  document.getElementById('username').textContent='@'+d.username;
+  setToggle('codex',d.codexEnabled);
+  setToggle('claude',d.claudeEnabled);
 }
 fetch('/api/status').then(r=>r.json()).then(d=>{
   // Footer version comes from the server (package.json / build stamp) so it can
   // never drift from the actual build the way the old hard-coded string did.
   if(d.version){var v=document.getElementById('ver');v.textContent='v'+d.version+(d.releaseDate?' · '+d.releaseDate:'')}
-  if(d.connected){document.getElementById('username').textContent='@'+d.username;setToggle('codex',d.codexEnabled);setToggle('claude',d.claudeEnabled);show('connected');renderStatus(d)}
+  if(d.connected){syncStatus(d);show('connected')}
   else show('idle');
 });
-setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.connected)renderStatus(d)}).catch(()=>{}),2000);
+setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.connected)syncStatus(d)}).catch(()=>{}),2000);
 setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 // Tell the bridge to shut down only when this window is GENUINELY closed. A tab
 // that Edge/Windows merely freezes in the background does not fire pagehide, so

@@ -3,7 +3,9 @@ set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
 BINARY="kobashi"
-VERSION="2.0.0"
+# Single source of truth: package.json. Hard-coding it here as well is what let
+# v1.9.2 ship displaying "v1.9.1" — two copies, only one of them bumped.
+VERSION="$(node -p "require('./package.json').version")"
 RELEASE_DATE="$(date +%Y-%m-%d)"
 
 # Stamp version + date into index.js. pkg has no package.json at runtime, so the

@@ -408,9 +408,10 @@ function getAssetText(name) {
   return fs.readFileSync(path.join(__dirname, "assets", name), "utf-8");
 }
 
-const HTML = getAssetText("ui.html")
-  .replace("{{PROXY_PORT}}", PROXY_PORT)
-  .replace("{{CLAUDE_PORT}}", CLAUDE_PORT);
+// No longer templated: the UI used to print the port numbers in a config panel,
+// but the ports are written straight into ~/.codex and ~/.claude/settings.json,
+// so showing them was asking the reader to check work already done for them.
+const HTML = getAssetText("ui.html");
 
 // ─── Codex config paths ────────────────────────────────────────────────────
 const CODEX_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".codex");
@@ -571,7 +572,7 @@ const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, ".co
 function saveSession() {
   try {
     fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
-    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, codexEnabled, claudeEnabled }, null, 2));
+    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, codexEnabled, claudeEnabled, authMethod }, null, 2));
     try { fs.chmodSync(SESSION_FILE, 0o600); } catch {}
   } catch (e) { dbg("[Session] save failed:", e.message); }
 }
@@ -590,6 +591,9 @@ async function loadSession() {
     // Backward compat: old sessions used single bridgeEnabled flag (Codex only)
     codexEnabled = data.codexEnabled !== undefined ? data.codexEnabled : (data.bridgeEnabled !== false);
     claudeEnabled = !!data.claudeEnabled;
+    // Sessions written before token sign-in existed have no authMethod, and every
+    // one of them came from the device flow — so absent means "device", not unknown.
+    authMethod = data.authMethod === "token" ? "token" : "device";
     await ensureCopilotToken();
     if (codexEnabled) writeCodexConfig();
     if (claudeEnabled) writeClaudeConfig();
@@ -598,6 +602,7 @@ async function loadSession() {
   } catch (e) {
     dbg("[Session] restore failed:", e.message);
     githubToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    copilotToken = null; copilotTokenExpiry = 0;
     deleteSession();
     return false;
   }
@@ -606,16 +611,19 @@ async function loadSession() {
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, codexEnabled = false, claudeEnabled = false;
-// Most-recent Claude model mapping, surfaced in the UI status bar so the user
-// can see what Claude Code asked for vs. what we actually sent to Copilot
-// (e.g. opus-4.8[1m] downgraded to opus-4.8 because Copilot has no 1M variant).
-let lastModelMap = null; // { requested, sent, downgraded, note, at }
-// Records the most recent thinking→effort mapping so the UI / an inspector can
-// see, live, exactly what reasoning_effort a given slider position produced.
-let lastEffort = null; // { source, requested, effort, at } — shown in UI as the active reasoning tier
-// When set, kobashi ignores whatever Claude Code requests and forces this model.
-// null = pass-through (no override).
-let claudeModelOverride = null;
+// How this machine signed in: "device" (GitHub device flow) or "token" (a token
+// pasted by the user). Device flow authenticates as the *account holder*, so it
+// needs their password — a friend running Kobashi off a shared token can never
+// complete it. Recording the method lets Disconnect send each user back to the
+// screen they can actually get through, instead of a dead end.
+//
+// Deliberately NOT cleared on disconnect or on an upstream token revocation: it
+// describes how the machine last signed in, not whether it is signed in now, and
+// that is exactly what the post-logout routing needs to know.
+let authMethod = null;
+// Records the most recent thinking→effort mapping so an inspector can see, live,
+// exactly what reasoning_effort a given slider position produced.
+let lastEffort = null; // { source, requested, effort, at }
 
 function httpsRequest(options, body) {
   return new Promise(async (resolve, reject) => {
@@ -636,6 +644,51 @@ function httpsRequest(options, body) {
   });
 }
 
+// Validate a token the user pasted, WITHOUT touching global auth state. A failed
+// paste must leave an already-working session exactly as it was, so nothing here
+// assigns to githubToken/copilotToken — the caller commits only on success.
+//
+// The two checks are deliberately separate because they fail for unrelated
+// reasons and have opposite remedies:
+//   /user                        → is this string a real GitHub token?
+//   /copilot_internal/v2/token   → does that account actually have Copilot?
+// A lapsed subscription leaves the token perfectly valid and fails only the
+// second call. Collapsing both into "invalid token" would send the user hunting
+// for a better token, which cannot fix a subscription problem.
+async function validateCandidateToken(token) {
+  const headers = { Authorization: `token ${token}`, "User-Agent": "GitHubCopilotChat/0.38.2" };
+  let who;
+  try {
+    who = await httpsRequest({ hostname: "api.github.com", path: "/user", method: "GET", headers });
+  } catch (e) {
+    return { ok: false, reason: "network", detail: e.message };
+  }
+  if (who.status === 401) return { ok: false, reason: "invalid_token" };
+  if (who.status !== 200 || !who.body || !who.body.login) {
+    return { ok: false, reason: "github_error", detail: `GitHub returned ${who.status}` };
+  }
+
+  let cop;
+  try {
+    cop = await httpsRequest({
+      hostname: "api.github.com", path: "/copilot_internal/v2/token", method: "GET",
+      headers: { ...headers, "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
+    });
+  } catch (e) {
+    return { ok: false, reason: "network", detail: e.message };
+  }
+  // 401 here after /user returned 200 means the token is real but carries no
+  // Copilot entitlement — same user-facing meaning as an explicit 403.
+  if (cop.status === 401 || cop.status === 403) return { ok: false, reason: "no_copilot", login: who.body.login };
+  if (cop.status !== 200 || !cop.body || !cop.body.token) {
+    return { ok: false, reason: "github_error", detail: `Copilot returned ${cop.status}` };
+  }
+
+  // Hand back the minted Copilot token so a successful paste doesn't immediately
+  // re-request one it already holds.
+  return { ok: true, login: who.body.login, copilot: cop.body.token, copilotExpiry: cop.body.expires_at };
+}
+
 async function ensureCopilotToken() {
   if (copilotToken && Date.now() / 1000 < copilotTokenExpiry - 120) return copilotToken;
   const res = await httpsRequest({
@@ -645,7 +698,7 @@ async function ensureCopilotToken() {
   if (res.status === 401 || res.status === 403) {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
-    githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    githubToken = null; copilotToken = null; copilotTokenExpiry = 0; username = null; codexEnabled = false; claudeEnabled = false;
     deleteSession();
     throw new Error(`GitHub token revoked (${res.status})`);
   }
@@ -1415,10 +1468,8 @@ const claudeProxy = http.createServer(async (req, res) => {
 
   const isStream = !!anthropicReq.stream;
   const oaiReq = anthropicToOpenAI(anthropicReq);
-  // If the user pinned a model in the kobashi UI, it overrides whatever Claude Code sent.
-  if (claudeModelOverride) oaiReq.model = claudeModelOverride;
   // Remap the requested model to one Copilot actually exposes
-  const requestedModel = oaiReq.model; // what Claude Code asked for (after override), before mapping
+  const requestedModel = oaiReq.model; // what Claude Code asked for, before mapping
   try {
     const mapped = await mapClaudeModel(oaiReq.model);
     if (mapped !== oaiReq.model) dbg(`[Claude] model ${oaiReq.model} → ${mapped}`);
@@ -1429,21 +1480,13 @@ const claudeProxy = http.createServer(async (req, res) => {
   }
   const model = oaiReq.model;
 
-  // Record the mapping for the UI status bar. "downgraded" flags the common case
-  // where the user picked a [1m] context that Copilot doesn't expose, so we
-  // silently fell back to the 200k base — the user deserves to see that.
+  // The UI no longer displays the mapping, but a silent downgrade still deserves
+  // a line in the log: asking for a [1m] context and quietly getting the 200k one
+  // is exactly the kind of thing someone needs to be able to find afterwards.
   {
     const askedFor1m = /\[1m\]$/i.test(requestedModel || "") || /-1m\b/i.test(requestedModel || "");
     const sent1m = /-1m\b/i.test(model || "");
-    const downgraded = askedFor1m && !sent1m;
-    lastModelMap = {
-      requested: requestedModel || "(default)",
-      sent: model,
-      downgraded,
-      note: downgraded ? "No 1M variant on Copilot, downgraded to 200K" : "",
-      at: Date.now(),
-    };
-    if (downgraded) log(`[Claude] ⚠ ${requestedModel} → ${model} (no 1M on Copilot, downgraded to 200K)`);
+    if (askedFor1m && !sent1m) log(`[Claude] ⚠ ${requestedModel} → ${model} (no 1M on Copilot, downgraded to 200K)`);
     else dbg(`[Claude] mapped ${requestedModel} → ${model}`);
   }
 
@@ -1586,6 +1629,7 @@ const ui = http.createServer(async (req, res) => {
       githubToken = r.body.access_token;
       const u = await httpsRequest({ hostname: "api.github.com", path: "/user", method: "GET", headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2" } });
       username = u.body.login || "";
+      authMethod = "device";
       codexEnabled = true;
       claudeEnabled = true;
       writeCodexConfig();
@@ -1596,6 +1640,38 @@ const ui = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ pending: true, error: r.body.error }));
     }
     return;
+  }
+  if (req.method === "POST" && req.url === "/api/token-login") {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    let token = "";
+    try { token = (JSON.parse(Buffer.concat(chunks).toString()).token || "").trim(); } catch {}
+    if (!token) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, reason: "invalid_token" })); return;
+    }
+
+    const v = await validateCandidateToken(token);
+    if (!v.ok) {
+      // Nothing has been mutated at this point, so a bad paste over a live
+      // session is a no-op rather than a logout.
+      log(`[Bridge] Token sign-in rejected: ${v.reason}${v.detail ? ` (${v.detail})` : ""}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, reason: v.reason, login: v.login })); return;
+    }
+
+    githubToken = token;
+    username = v.login;
+    copilotToken = v.copilot;
+    copilotTokenExpiry = v.copilotExpiry;
+    authMethod = "token";
+    codexEnabled = true;
+    claudeEnabled = true;
+    writeCodexConfig();
+    writeClaudeConfig();
+    saveSession();
+    log("[Bridge] Signed in via pasted token as", username);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, username })); return;
   }
   if (req.method === "POST" && req.url === "/api/heartbeat") {
     lastHeartbeat = Date.now();
@@ -1622,19 +1698,8 @@ const ui = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.url === "/api/status") {
-    let claudeModels = [];
-    // Expose the raw Copilot id (dot format) as the value so override sends exactly what Copilot expects.
-    try { claudeModels = (await getClaudeCodeFacingModels()).map(m => ({ id: m._copilot, name: m.name })); } catch {}
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastModelMap, lastEffort, claudeModelOverride, claudeModels, version: APP_VERSION, releaseDate: APP_DATE })); return;
-  }
-  if (req.method === "POST" && req.url === "/api/set-claude-model") {
-    if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
-    const chunks = []; for await (const c of req) chunks.push(c);
-    const { model } = JSON.parse(Buffer.concat(chunks).toString());
-    claudeModelOverride = model || null; // null = clear override (pass-through)
-    log(`[Claude] model override → ${claudeModelOverride || "(pass-through)"}`);
-    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ claudeModelOverride })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, version: APP_VERSION, releaseDate: APP_DATE })); return;
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
@@ -1654,8 +1719,15 @@ const ui = http.createServer(async (req, res) => {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
     githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    // Expiry must be zeroed alongside the token it describes: a stale non-zero
+    // expiry paired with a fresh token from the *next* sign-in would make the
+    // cache look valid when it is not.
+    copilotTokenExpiry = 0;
     deleteSession();
-    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
+    // authMethod survives, so the UI can offer the screen this machine can
+    // actually complete: device-flow users get the GitHub button back, token
+    // users get the paste field rather than a password prompt they cannot pass.
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true, next: authMethod === "token" ? "token" : "idle" })); return;
   }
   if (req.method === "POST" && req.url === "/api/open-url") {
     const chunks = []; for await (const c of req) chunks.push(c);
