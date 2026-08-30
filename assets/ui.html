@@ -17,7 +17,14 @@
   .logo{display:flex;align-items:center;gap:6px;margin-bottom:18px;margin-left:-4px}
   .logo svg{width:28px;height:28px;color:var(--logo-color)}
   h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent1),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-  .sub{color:var(--muted);font-size:14px;margin-bottom:28px}
+  /* 两行文案是硬约束（<br> 手动断行）。第一行在 400px 窗口下实测 315.6px，
+     可用宽度 321px —— 余量只有 5.4px。Windows 的 Segoe UI 比 macOS 的 SF 略宽，
+     一旦超出就会折成第三行，把下方所有间距顶乱。text-wrap:balance 在这里不合适
+     （它会重新分配断点，破坏我们指定的断行），所以用 nowrap 锁死每行：宁可极端
+     情况下被裁切一两个像素，也不能让布局塌掉。 */
+  /* margin-bottom 由 28 收到 20，正好抵消 account box 向上多长的 8px，
+     使 box 底边、以及其下方所有元素的位置保持不变。 */
+  .sub{color:var(--muted);font-size:14px;margin-bottom:20px;white-space:nowrap}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:10px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--fg);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;backdrop-filter:blur(4px)}
   .btn:hover{background:var(--btn-hover-bg);border-color:var(--btn-hover-border);box-shadow:var(--btn-hover-glow)}
   .btn:active{transform:scale(.97)}
@@ -77,7 +84,7 @@
   #view-connected{flex:1}
   .logo,.sub{position:relative;z-index:2}
   .footer{position:relative;z-index:2}
-  .footer{margin-top:auto;padding:16px 0 14px;font-size:10px;color:var(--muted);opacity:.65;text-align:right;line-height:1.6}
+  .footer{padding:16px 0 14px;font-size:10px;color:var(--muted);opacity:.65;text-align:right;line-height:1.6}
   .footer a{color:inherit;text-decoration:none;cursor:pointer}
   .footer a:hover{opacity:.8;text-decoration:underline}
   .theme-btn{position:absolute;top:24px;right:32px;width:32px;height:32px;border-radius:8px;border:1px solid var(--card-border);background:var(--btn-bg);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;z-index:3}
@@ -87,6 +94,36 @@
   .bridge-logo img{width:24px;height:24px;object-fit:contain}
   .bridge-logo.claude{color:#d97757}
   .panel-row-left{display:flex;align-items:center;gap:12px}
+  /* ── Account 面板：去掉 "Account" 标签，腾出的行高给用量进度条 ──────────────
+     高度锁死。旧布局 = 18(pad)+14(label)+4+26(badge)+18(pad) = 80px。
+     现在 box 向【上】长到 88px（文案下方间距同步 28→20 补偿），底边因此仍钉在
+     原位置，从这里往下的一切（两个 bridge 面板、底部动画、footer）完全不变。
+     多出的 8px 全部给内部呼吸：
+        14(pad-top)+26(badge)+14(gap)+12(标签行)+6(文字↔条)+5(条)+11(pad-bottom) = 88 */
+  .panel.acct{padding:14px 18px 11px;min-height:88px}
+  .usage{margin-top:14px}
+  .usage-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+  .usage-label{font-size:11px;color:var(--muted);line-height:12px}
+  .usage-num{font-size:11px;color:var(--muted);line-height:12px;font-variant-numeric:tabular-nums}
+  .usage-num b{color:var(--fg);font-weight:600}
+  .track{position:relative;height:5px;border-radius:3px;background:var(--toggle-bg);overflow:hidden}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,var(--accent1),var(--accent2));transition:width .6s cubic-bezier(.4,0,.2,1)}
+  /* 额度是千万级，正常用量下占比不到 1%：给一个最小可见宽度，否则圆角会把
+     填充完全吃掉，看起来像根本没渲染。 */
+  .fill.tiny{min-width:3px}
+  /* 拿不到用量时整段隐藏，绝不显示 "0 / 0" 这种半残状态 */
+  .usage.hidden{display:none}
+  /* ── Ambient footer animation ("Dither Crossing") ────────────────────────
+     A Bayer ordered-dither field whose dissolve edge sweeps left→right: sparse
+     muted grain on the local-client side resolving into dense accent pixels on
+     the Copilot side. margin-top:auto pushes it to the bottom of the card, and
+     the top padding is the breathing room between it and the Codex panel. */
+  .dx{position:relative;width:100%;height:82px;margin-top:auto;padding-top:18px;overflow:hidden;pointer-events:none;flex-shrink:0}
+  .dx canvas{display:block;width:100%;height:100%;opacity:.9;transition:opacity .6s ease}
+  /* Both bridges paused → the field dims and freezes (the JS also stops the loop). */
+  .dx[data-state="paused"] canvas{opacity:.32}
+  /* Feather every edge into the card so the block never reads as a panel. */
+  .dx::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,var(--card-bg) 0%,transparent 26%,transparent 74%,var(--card-bg) 100%),linear-gradient(to right,var(--card-bg) 0%,transparent 10%,transparent 94%,var(--card-bg) 100%)}
 </style>
 </head>
 <body>
@@ -108,7 +145,7 @@
     </svg>
     <h1>Kobashi</h1>
   </div>
-  <p class="sub">Route Claude Code and OpenAI Codex through<br>your GitHub Copilot subscription</p>
+  <p class="sub">Route Anthropic Claude Code and OpenAI Codex<br>through GitHub Copilot subscription</p>
 
   <div id="view-idle">
     <button class="btn" onclick="startAuth()">
@@ -137,13 +174,17 @@
   </div>
 
   <div id="view-connected" class="fade-in">
-    <div class="panel">
-      <div class="panel-row" style="align-items:flex-end">
-        <div>
-          <span class="panel-label">Account</span>
-          <div style="margin-top:4px"><span class="user-badge"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> <span id="username"></span></span></div>
-        </div>
+    <div class="panel acct">
+      <div class="panel-row" style="margin-bottom:0">
+        <span class="user-badge"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> <span id="username"></span></span>
         <button class="btn btn-disconnect" onclick="disconnect()">Disconnect</button>
+      </div>
+      <div class="usage hidden" id="usage">
+        <div class="usage-row">
+          <span class="usage-label">AI credits this cycle</span>
+          <span class="usage-num"><b id="usage-used">—</b> / <span id="usage-ent"></span></span>
+        </div>
+        <div class="track"><div class="fill" id="usage-fill" style="width:0"></div></div>
       </div>
     </div>
 
@@ -183,6 +224,7 @@
       </div>
     </div>
   </div>
+  <div class="dx" id="dx" data-state="active" aria-hidden="true"><canvas id="dx-canvas"></canvas></div>
   <div class="footer"><a href="#" onclick="fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:'https://github.com/xjin6/kobashi'})});return false">xjin6</a> &middot; <span id="ver">&nbsp;</span></div>
 </div>
 
@@ -213,6 +255,9 @@ function lsDel(k){ try{ localStorage.removeItem(k); }catch(_){} }
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
   document.getElementById('theme-icon').innerHTML=t==='light'?sunSVG:moonSVG;
+  // The animation caches its palette, so it must re-bake on a theme change —
+  // otherwise it would keep painting dark-theme blue over the light theme.
+  if(window.kobashiRepaintAnim)window.kobashiRepaintAnim();
 }
 function systemTheme(){return sysLight.matches?'light':'dark'}
 // A stored value means "the user overrode the system"; absent means "follow it".
@@ -242,6 +287,15 @@ function setToggle(prefix,on){
   const t=document.getElementById(prefix+'-toggle'),d=document.getElementById(prefix+'-dot'),s=document.getElementById(prefix+'-text');
   if(on){t.classList.add('on');d.className='dot dot-green dot-pulse';s.textContent='Active'}
   else{t.classList.remove('on');d.className='dot dot-gray';s.textContent='Paused'}
+  syncAnim();
+}
+// The footer animation represents traffic crossing the bridge, so it only goes
+// dim-and-frozen when there is no bridge left carrying any — i.e. BOTH are off.
+function syncAnim(){
+  if(!window.kobashiAnimState)return;
+  const on=document.getElementById('codex-toggle').classList.contains('on')
+        || document.getElementById('claude-toggle').classList.contains('on');
+  window.kobashiAnimState(on);
 }
 function openLink(e){
   e.preventDefault();
@@ -352,6 +406,27 @@ function syncStatus(d){
   document.getElementById('username').textContent='@'+d.username;
   setToggle('codex',d.codexEnabled);
   setToggle('claude',d.claudeEnabled);
+  renderUsage(d.usage);
+}
+// Copilot premium-request 用量条。服务端还没有提供 d.usage，所以今天这段永远走
+// "隐藏" 分支 —— 面板的 min-height 保证隐藏时高度不塌，下方间距不受影响。
+// 接上 /copilot_internal/user 之后，传入 {creditsUsed, entitlement} 即可点亮。
+function renderUsage(u){
+  const box=document.getElementById('usage');
+  if(!box)return;
+  // Hidden when there is nothing meaningful to draw: no data yet, or a seat with
+  // unlimited premium requests (entitlement 0 — no ratio exists). The panel's
+  // min-height keeps the box the same size either way, so the layout below it
+  // never shifts.
+  if(!u||u.unlimited||!u.entitlement||typeof u.creditsUsed!=='number'){box.classList.add('hidden');return;}
+  const pct=Math.max(0,Math.min(100,u.creditsUsed/u.entitlement*100));
+  document.getElementById('usage-used').textContent=u.creditsUsed.toLocaleString('en-US');
+  document.getElementById('usage-ent').textContent=u.entitlement.toLocaleString('en-US');
+  const fill=document.getElementById('usage-fill');
+  // 额度是千万级，正常占比不到 1%——低于 0.5% 时套 .tiny 给最小可见宽度。
+  fill.classList.toggle('tiny',pct<0.5);
+  fill.style.width=Math.max(pct,pct>0?0.35:0)+'%';
+  box.classList.remove('hidden');
 }
 fetch('/api/status').then(r=>r.json()).then(d=>{
   // Footer version comes from the server (package.json / build stamp) so it can
@@ -366,7 +441,104 @@ setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 // that Edge/Windows merely freezes in the background does not fire pagehide, so
 // the bridge survives minimization instead of being killed by a stalled
 // heartbeat. persisted===true means bfcache (not a real close) — skip those.
-window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigator.sendBeacon('/api/closing')}catch(_){}}); 
+window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigator.sendBeacon('/api/closing')}catch(_){}});
+
+// ─── Ambient footer animation: "Dither Crossing" ───────────────────────────
+// A 4px-pitch grid thresholded through an 8x8 Bayer matrix, with a travelling
+// crest so the dissolve EDGE sweeps left→right — packets leaving the local
+// client and arriving saturated on the Copilot side.
+//
+// This window can sit open for days, so idle cost is the whole design problem:
+//   • No frames are scheduled at all when the tab is hidden, both bridges are
+//     paused, or prefers-reduced-motion is set — those draw ONE static frame
+//     and then cancel the rAF, rather than redrawing an identical picture 20x
+//     a second forever.
+//   • Colors are resolved once per theme change into a cached alpha ramp, so
+//     the hot loop indexes an array instead of building rgba() strings per
+//     cell (which would be ~20k string allocations a second).
+//   • Redraw is capped at 20fps by a timestamp gate inside a single rAF loop.
+(function(){
+  var host=document.getElementById('dx');
+  if(!host||!host.querySelector) return;
+  var cv=document.getElementById('dx-canvas');
+  if(!cv||!cv.getContext) return;            // no canvas → block stays empty
+  var ctx=cv.getContext('2d');
+  var BAYER=[0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21];
+  for(var i=0;i<64;i++)BAYER[i]=(BAYER[i]+0.5)/64;
+  var P=4,D=3,W=0,H=0,t=0,raf=0,last=0,pal=null;
+  var reduceMQ=window.matchMedia?matchMedia('(prefers-reduced-motion:reduce)'):{matches:false};
+
+  function rgb(h){var m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((h||'').trim());
+    return m?[parseInt(m[1],16),parseInt(m[2],16),parseInt(m[3],16)]:[128,128,128];}
+  // Continuous muted → accent1 → accent2 ramp across the span, so the colour
+  // shifts smoothly instead of stepping between three hard bands. Built as a
+  // 2D lookup (HUES columns x 13 alpha steps) ONCE per theme, so the hot loop
+  // only indexes an array — no per-cell string building, no per-cell lerp.
+  var HUES=48;
+  function mix(a,b,k){return [a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k,a[2]+(b[2]-a[2])*k];}
+  function theme(){
+    var cs=getComputedStyle(document.documentElement);
+    var cm=rgb(cs.getPropertyValue('--muted')||'#8b949e');
+    var c1=rgb(cs.getPropertyValue('--accent1')||'#58a6ff');
+    var c2=rgb(cs.getPropertyValue('--accent2')||'#a371f7');
+    pal=[];
+    for(var h=0;h<HUES;h++){
+      var u=h/(HUES-1);
+      // Two smoothstepped legs: muted→accent1 over the first half, then
+      // accent1→accent2. Smoothstep keeps the joint at u=0.5 from reading as a
+      // crease the way a raw linear blend does.
+      var c;
+      if(u<0.5){var k=u/0.5;c=mix(cm,c1,k*k*(3-2*k));}
+      else{var k2=(u-0.5)/0.5;c=mix(c1,c2,k2*k2*(3-2*k2));}
+      var r=Math.round(c[0]),g=Math.round(c[1]),b=Math.round(c[2]),col=[];
+      for(var i=0;i<=12;i++)col.push('rgba('+r+','+g+','+b+','+(i/12).toFixed(3)+')');
+      pal.push(col);
+    }
+  }
+  function size(){
+    var r=host.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+    W=Math.max(1,Math.round(r.width));H=Math.max(1,Math.round(r.height));
+    cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  function isPaused(){return host.getAttribute('data-state')==='paused';}
+  function paint(){
+    ctx.clearRect(0,0,W,H);
+    if(!pal)return;
+    var paused=isPaused(), head=((t*0.16)%1.9)-0.45;
+    for(var x=1;x<W;x+=P){
+      var u=x/W;
+      var col=pal[(u*(HUES-1))|0];
+      var g=paused?0:Math.exp(-Math.pow((u-head)*3.4,2))*0.55;
+      for(var y=1;y<H;y+=P){
+        var d=(0.10+u*0.80)*(0.35+0.65*(y/H))+g;
+        if(d<=0.02)continue; if(d>1)d=1;
+        if(d>BAYER[(((y/P)|0)&7)*8+(((x/P)|0)&7)]){
+          ctx.fillStyle=col[(d*12)|0];
+          ctx.fillRect(x,y,D,D);
+        }
+      }
+    }
+  }
+  function loop(ts){raf=requestAnimationFrame(loop);if(ts-last<50)return;last=ts;t+=0.05;paint();}
+  // The crux: when nothing can change, schedule nothing.
+  function sync(){
+    if(reduceMQ.matches||document.hidden||isPaused()){
+      if(raf){cancelAnimationFrame(raf);raf=0;}
+      paint(); return;
+    }
+    if(!raf){last=0;raf=requestAnimationFrame(loop);}
+  }
+  window.addEventListener('resize',function(){size();paint();},{passive:true});
+  document.addEventListener('visibilitychange',sync);
+  if(reduceMQ.addEventListener)reduceMQ.addEventListener('change',sync);
+  // Repaint with a freshly-baked palette when the theme flips (manual or system).
+  window.kobashiRepaintAnim=function(){theme();sync();paint();};
+  // Driven by setToggle(): dim + freeze only when BOTH bridges are paused.
+  window.kobashiAnimState=function(active){
+    host.setAttribute('data-state',active?'active':'paused');sync();
+  };
+  theme();size();sync();
+})();
 </script>
 </body>
 </html>

@@ -4,3 +4,8 @@ dist/
 .DS_Store
 package-lock.json
 ScreenShot_2026-05-31_035853_687.png
+
+# Local design/review scratch
+preview-*.html
+index.js.pre-rename.bak
+.claude/launch.json

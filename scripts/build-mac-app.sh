@@ -10,9 +10,14 @@ VERSION="$(node -p "require('./package.json').version")"
 BINARY="kobashi"
 RELEASE_DATE="$(date +%Y-%m-%d)"
 
+# Scratch space. Hard-coding /tmp breaks under sandboxed shells (and on any
+# machine where /tmp is not writable), so honour TMPDIR when it is set.
+TMP="${TMPDIR:-/tmp}"
+TMP="${TMP%/}"
+
 # Stamp version + date into index.js (pkg has no package.json at runtime, so the
 # UI footer would otherwise show "0.0.0"). Restored on exit, incl. on failure.
-STAMP_BAK="$(mktemp)"
+STAMP_BAK="$(mktemp "${TMP}/kobashi-stamp.XXXXXX")"
 cp index.js "$STAMP_BAK"
 restore_stamp() { cp "$STAMP_BAK" index.js; rm -f "$STAMP_BAK"; }
 trap restore_stamp EXIT
@@ -48,10 +53,11 @@ echo "==> Generating ICNS icon..."
 # Follow Apple's Dock icon template: 1024x1024 canvas with ~100px transparent
 # padding on every side, so the white squircle itself is 824x824 (matches the
 # visual size of Edge / Teams / VS Code). Corner radius ~185 on the squircle.
-python3 - <<'PY'
+python3 - "$TMP" <<'PY'
 from PIL import Image, ImageDraw
+import sys, os
 SRC = "assets/kobashi-icon.png"
-OUT = "/tmp/kobashi-padded.png"
+OUT = os.path.join(sys.argv[1], "kobashi-padded.png")
 CANVAS   = 1024
 SQUIRCLE = 824          # white rounded-square size (Apple grid)
 RADIUS   = 185          # matches Apple's continuous-corner squircle
@@ -72,7 +78,7 @@ y = (CANVAS - src.height) // 2
 canvas.alpha_composite(src, (x, y))
 canvas.save(OUT)
 PY
-ICON_SRC="/tmp/kobashi-padded.png"
+ICON_SRC="${TMP}/kobashi-padded.png"
 ICONSET="dist/AppIcon.iconset"
 rm -rf "${ICONSET}"
 mkdir -p "${ICONSET}"
@@ -82,7 +88,7 @@ for size in 16 32 128 256 512; do
   sips -z $((size*2)) $((size*2)) "${ICON_SRC}" \
     --out "${ICONSET}/icon_${size}x${size}@2x.png"        > /dev/null
 done
-rm -f /tmp/kobashi-padded.png
+rm -f "${ICON_SRC}"
 iconutil -c icns "${ICONSET}" -o "dist/AppIcon.icns"
 rm -rf "${ICONSET}"
 

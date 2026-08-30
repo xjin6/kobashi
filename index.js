@@ -63,7 +63,7 @@ const BROWSER_PATH = findBrowser();
 function openAppWindow(url) {
   if (process.platform === "darwin") {
     if (BROWSER_PATH) {
-      spawn(BROWSER_PATH, [`--app=${url}`, "--window-size=420,560", "--no-default-browser-check"], {
+      spawn(BROWSER_PATH, [`--app=${url}`, "--window-size=400,560", "--no-default-browser-check"], {
         detached: true, stdio: "ignore",
       }).unref();
     } else {
@@ -77,7 +77,7 @@ function openAppWindow(url) {
       // set. Best-effort (ignored if the browser is already running), which is
       // why the real fix is the pagehide beacon + removal of the suicide watchdog.
       const antiFreeze = "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
-      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=420,560 ${antiFreeze}`, { stdio: "ignore", shell: true, windowsHide: true });
+      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=400,560 ${antiFreeze}`, { stdio: "ignore", shell: true, windowsHide: true });
     } else {
       execSync(`start "" "${url}"`, { stdio: "ignore", shell: true, windowsHide: true });
     }
@@ -445,13 +445,13 @@ function writeCodexConfig() {
     .filter(l => !/^\s*model_provider\s*=/.test(l) && !/^\s*base_url\s*=.*127\.0\.0\.1/.test(l))
     .join("\n").trim();
   const cleanSections = sections
-    .filter(s => !/^\s*\[model_providers\.copilot-bridge\]/.test(s))
+    .filter(s => !/^\s*\[model_providers\.(kobashi|copilot-bridge)\]/.test(s))
     .map(s => s.trim()).join("\n\n");
 
   const out = [
-    `model_provider = "copilot-bridge"`, cleanTop, "",
-    `[model_providers.copilot-bridge]`,
-    `name = "Copilot Bridge"`,
+    `model_provider = "kobashi"`, cleanTop, "",
+    `[model_providers.kobashi]`,
+    `name = "Kobashi"`,
     `base_url = "http://127.0.0.1:${PROXY_PORT}/v1"`,
     `env_key = "OPENAI_API_KEY"`,
     `wire_api = "responses"`, "",
@@ -476,11 +476,42 @@ function writeCodexConfig() {
   log("[Bridge] Codex config injected");
 }
 
+// Remove only what writeCodexConfig() injected, leaving every other section
+// intact. Deleting the whole file (the old behaviour when no .bak existed) took
+// the user's notify/marketplaces/plugins config with it.
+function stripInjectedCodexConfig() {
+  try {
+    const src = fs.readFileSync(CODEX_CONFIG, "utf-8");
+    const lines = src.split("\n");
+    const topLevel = [], sections = [];
+    let cur = null;
+    for (const line of lines) {
+      if (/^\s*\[/.test(line)) { if (cur) sections.push(cur); cur = line + "\n"; }
+      else if (cur) cur += line + "\n";
+      else topLevel.push(line);
+    }
+    if (cur) sections.push(cur);
+
+    const cleanTop = topLevel
+      .filter(l => !/^\s*model_provider\s*=/.test(l) && !/^\s*base_url\s*=.*127\.0\.0\.1/.test(l))
+      .join("\n").trim();
+    const cleanSections = sections
+      .filter(s => !/^\s*\[model_providers\.(kobashi|copilot-bridge)\]/.test(s))
+      .map(s => s.trim()).join("\n\n");
+
+    const out = [cleanTop, "", cleanSections].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (out) fs.writeFileSync(CODEX_CONFIG, out + "\n");
+    else fs.unlinkSync(CODEX_CONFIG);   // nothing of the user's left
+  } catch (e) {
+    dbg("[Bridge] strip codex config failed:", e.message);
+  }
+}
+
 function restoreCodexConfig() {
   if (fs.existsSync(CODEX_AUTH + ".bak")) { fs.copyFileSync(CODEX_AUTH + ".bak", CODEX_AUTH); fs.unlinkSync(CODEX_AUTH + ".bak"); }
   else if (fs.existsSync(CODEX_AUTH)) fs.unlinkSync(CODEX_AUTH);
   if (fs.existsSync(CODEX_CONFIG + ".bak")) { fs.copyFileSync(CODEX_CONFIG + ".bak", CODEX_CONFIG); fs.unlinkSync(CODEX_CONFIG + ".bak"); }
-  else if (fs.existsSync(CODEX_CONFIG)) fs.unlinkSync(CODEX_CONFIG);
+  else if (fs.existsSync(CODEX_CONFIG)) stripInjectedCodexConfig();
 
   if (process.platform === "win32") {
     try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore", windowsHide: true }); } catch {}
@@ -567,7 +598,24 @@ function restoreClaudeConfig() {
 }
 
 // ─── Session persistence ────────────────────────────────────────────────────
-const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, ".codex", "ccb-session.json");
+const KOBASHI_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".kobashi");
+const SESSION_FILE = path.join(KOBASHI_DIR, "session.json");
+// Legacy location: kobashi's own state used to live inside Codex's config dir,
+// under a "ccb-" prefix from when this was called Copilot Bridge. Both were
+// wrong: the file is ours, not Codex's. Migrated on first run; the old file is
+// removed so it can't drift or be resurrected by a stale sync.
+const LEGACY_SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, ".codex", "ccb-session.json");
+
+function migrateLegacySession() {
+  try {
+    if (fs.existsSync(SESSION_FILE) || !fs.existsSync(LEGACY_SESSION_FILE)) return;
+    fs.mkdirSync(KOBASHI_DIR, { recursive: true });
+    fs.copyFileSync(LEGACY_SESSION_FILE, SESSION_FILE);
+    try { fs.chmodSync(SESSION_FILE, 0o600); } catch {}
+    fs.unlinkSync(LEGACY_SESSION_FILE);
+    log("[Bridge] Migrated session from ~/.codex/ccb-session.json to ~/.kobashi/session.json");
+  } catch (e) { dbg("[Session] migration failed:", e.message); }
+}
 
 function saveSession() {
   try {
@@ -579,10 +627,12 @@ function saveSession() {
 
 function deleteSession() {
   try { if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE); } catch {}
+  try { if (fs.existsSync(LEGACY_SESSION_FILE)) fs.unlinkSync(LEGACY_SESSION_FILE); } catch {}
 }
 
 async function loadSession() {
   try {
+    migrateLegacySession();
     if (!fs.existsSync(SESSION_FILE)) return false;
     const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
     if (!data.github_token) return false;
@@ -699,6 +749,7 @@ async function ensureCopilotToken() {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
     githubToken = null; copilotToken = null; copilotTokenExpiry = 0; username = null; codexEnabled = false; claudeEnabled = false;
+    usageCache = null; usageCacheAt = 0;   // never show the revoked account's numbers
     deleteSession();
     throw new Error(`GitHub token revoked (${res.status})`);
   }
@@ -706,6 +757,64 @@ async function ensureCopilotToken() {
   copilotToken = res.body.token;
   copilotTokenExpiry = res.body.expires_at;
   return copilotToken;
+}
+
+// ─── Copilot premium-request usage (cached) ────────────────────────────────
+// The number github.com/settings/copilot/features shows as "X / Y AI credits"
+// lives in /copilot_internal/user under quota_snapshots.premium_interactions.
+// Verified live: credits_used 324157, entitlement 10000000, and it moves within
+// a single conversation — so it is a real-time counter, not a daily rollup.
+//
+// Deliberately NOT folded into ensureCopilotToken(): that response carries only
+// `limited_user_quotas: null` (checked — the quota block is not there), and its
+// cache is pinned to a ~30-minute token lifetime, whereas usage changes every
+// turn. So this is its own request on its own 60s cache.
+//
+// Never throws: the UI treats a null as "hide the bar". A usage read failing
+// must never break /api/status, which the window polls every 2s and which also
+// carries the connection state the whole UI depends on.
+let usageCache = null;      // { creditsUsed, entitlement, resetDate, unlimited }
+let usageCacheAt = 0;
+const USAGE_TTL = 60000;
+
+async function getCopilotUsage() {
+  if (!githubToken) return null;
+  if (usageCache && Date.now() - usageCacheAt < USAGE_TTL) return usageCache;
+  try {
+    const res = await httpsRequest({
+      hostname: "api.github.com", path: "/copilot_internal/user", method: "GET",
+      headers: {
+        Authorization: `token ${githubToken}`,
+        "User-Agent": "GitHubCopilotChat/0.38.2",
+        "Editor-Version": "vscode/1.110.1",
+        "Editor-Plugin-Version": "copilot-chat/0.38.2",
+        "Copilot-Integration-Id": "vscode-chat",
+        Accept: "application/json",
+      },
+    });
+    if (res.status !== 200 || !res.body || typeof res.body !== "object") {
+      dbg(`[Usage] /copilot_internal/user → ${res.status}`);
+      return usageCache;   // keep the last good value rather than blanking the bar
+    }
+    const snap = (res.body.quota_snapshots || {}).premium_interactions;
+    if (!snap) { dbg("[Usage] no premium_interactions snapshot"); return usageCache; }
+    // Seats with unlimited premium requests report entitlement 0 — there is no
+    // ratio to draw, so report it as unlimited and let the UI hide the bar.
+    const entitlement = Number(snap.entitlement) || 0;
+    const creditsUsed = Number(snap.credits_used) || 0;
+    usageCache = {
+      creditsUsed,
+      entitlement,
+      unlimited: !!snap.unlimited || entitlement <= 0,
+      // Outer field, not snap.quota_reset_at (which is a useless 0 here).
+      resetDate: res.body.quota_reset_date_utc || res.body.quota_reset_date || null,
+    };
+    usageCacheAt = Date.now();
+    return usageCache;
+  } catch (e) {
+    dbg("[Usage] fetch failed:", e.message);
+    return usageCache;
+  }
 }
 
 // ─── Copilot model list (cached) + Claude model mapping ───────────────────
@@ -1698,8 +1807,13 @@ const ui = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (req.url === "/api/status") {
+    // Usage is best-effort and served from a 60s cache, so this stays cheap even
+    // though the window polls this route every 2 seconds. A null just hides the
+    // bar; it must never take the rest of the status payload down with it.
+    let usage = null;
+    try { usage = await getCopilotUsage(); } catch { usage = null; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, version: APP_VERSION, releaseDate: APP_DATE })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, version: APP_VERSION, releaseDate: APP_DATE })); return;
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
@@ -1723,6 +1837,9 @@ const ui = http.createServer(async (req, res) => {
     // expiry paired with a fresh token from the *next* sign-in would make the
     // cache look valid when it is not.
     copilotTokenExpiry = 0;
+    // Same reasoning for the usage cache: signing in as someone else must not
+    // briefly show the previous account's credit count.
+    usageCache = null; usageCacheAt = 0;
     deleteSession();
     // authMethod survives, so the UI can offer the screen this machine can
     // actually complete: device-flow users get the GitHub button back, token
