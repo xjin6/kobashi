@@ -8,10 +8,16 @@ BINARY="kobashi"
 VERSION="$(node -p "require('./package.json').version")"
 RELEASE_DATE="$(date +%Y-%m-%d)"
 
+# Scratch space. A bare mktemp writes to the system temp dir, which is not
+# writable under a sandboxed shell — same failure the mac script hit. Honour
+# TMPDIR so the build works in restricted environments too.
+TMP="${TMPDIR:-/tmp}"
+TMP="${TMP%/}"
+
 # Stamp version + date into index.js. pkg has no package.json at runtime, so the
 # UI footer would otherwise fall back to "0.0.0". Restored on exit (incl. failure)
 # so the working tree is never left modified.
-STAMP_BAK="$(mktemp)"
+STAMP_BAK="$(mktemp "${TMP}/kobashi-stamp.XXXXXX")"
 cp index.js "$STAMP_BAK"
 restore_stamp() { cp "$STAMP_BAK" index.js; rm -f "$STAMP_BAK"; }
 trap restore_stamp EXIT
