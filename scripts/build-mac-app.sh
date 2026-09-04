@@ -145,6 +145,10 @@ PLIST
 
 echo "==> Packaging as zip..."
 cd dist
+# `zip -r` updates an existing archive in place. Besides retaining stale files,
+# that can hang when the previous archive is an evicted cloud-storage placeholder.
+# Always create the release archive from scratch.
+rm -f "${APP_NAME}.zip"
 zip -r "${APP_NAME}.zip" "${APP_NAME}.app"
 cd ..
 

@@ -14,7 +14,7 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.1.2)](https://github.com/xjin6/kobashi/releases/download/v2.1.2/Kobashi.zip)** | ~35 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.1.3)](https://github.com/xjin6/kobashi/releases/download/v2.1.3/Kobashi.zip)** | ~35 MB |
 | **Windows** | **[kobashi.exe](https://github.com/xjin6/kobashi/releases/latest/download/kobashi.exe)** | ~55 MB |
 
 No installation required. No dependencies. Just download and double-click.
