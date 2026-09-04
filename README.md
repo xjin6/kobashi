@@ -14,7 +14,7 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip](https://github.com/xjin6/kobashi/releases/latest/download/Kobashi.zip)** | ~35 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.1.2)](https://github.com/xjin6/kobashi/releases/download/v2.1.2/Kobashi.zip)** | ~35 MB |
 | **Windows** | **[kobashi.exe](https://github.com/xjin6/kobashi/releases/latest/download/kobashi.exe)** | ~55 MB |
 
 No installation required. No dependencies. Just download and double-click.
@@ -49,7 +49,7 @@ The bridge intercepts API requests on localhost and forwards them to the GitHub 
 - One-click GitHub OAuth device flow authentication
 - Automatic Copilot token acquisition and refresh
 - **Claude Bridge** — exposes an Anthropic-compatible API; remaps Claude Code's model IDs (e.g. `claude-opus-4-7`, `claude-sonnet-4-6[1m]`) to whatever Copilot actually supports; translates streaming + tool-use between Anthropic and OpenAI formats
-- **Codex Bridge** — transparent passthrough proxy for OpenAI's Responses / Chat Completions
+- **Codex Bridge** — transparent passthrough proxy with an OpenAI-only model picker and safe 1M context defaults for models that support it
 - Auto-injects configs (`~/.claude/settings.json`, `~/.codex/auth.json` + `config.toml`) and restores them on disconnect
 - Auto-detects system HTTP(S) proxy — routes only Bridge's upstream traffic through it, leaving other apps untouched
 - Light/dark mode with system preference detection

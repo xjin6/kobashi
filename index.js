@@ -5,6 +5,18 @@ const tls = require("tls");
 const fs = require("fs");
 const path = require("path");
 const { execSync, spawn } = require("child_process");
+const {
+  injectCodexConfig,
+  restoreCodexConfigContents,
+  isKobashiManagedConfig,
+  isKobashiManagedAuth,
+} = require("./lib/codex-config");
+const {
+  KOBASHI_OPENAI_MODEL_SLUGS,
+  ensureKobashiModelCatalog,
+  getKobashiModelCatalogPath,
+} = require("./lib/codex-model-catalog");
+const { createResponsesSseNormalizer } = require("./lib/responses-sse-normalizer");
 
 const DEBUG = process.argv.includes("--debug");
 const log = (...a) => console.log(...a);
@@ -414,51 +426,82 @@ function getAssetText(name) {
 const HTML = getAssetText("ui.html");
 
 // ─── Codex config paths ────────────────────────────────────────────────────
-const CODEX_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".codex");
+// Codex supports relocating its home directory. Honor that before falling back
+// to the conventional ~/.codex path so Kobashi config reaches the same install
+// the user is actually running.
+const CODEX_DIR = path.resolve(
+  process.env.CODEX_HOME || path.join(process.env.HOME || process.env.USERPROFILE, ".codex"),
+);
 const CODEX_AUTH = path.join(CODEX_DIR, "auth.json");
 const CODEX_CONFIG = path.join(CODEX_DIR, "config.toml");
+const CODEX_MODEL_CATALOG = getKobashiModelCatalogPath();
+
+function writeTextAtomic(filePath, contents, mode) {
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  try {
+    fs.writeFileSync(tempPath, contents, {
+      encoding: "utf8",
+      flag: "wx",
+      ...(mode === undefined ? {} : { mode }),
+    });
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    try { fs.unlinkSync(tempPath); } catch {}
+    throw error;
+  }
+}
 
 function writeCodexConfig() {
   fs.mkdirSync(CODEX_DIR, { recursive: true });
-  if (fs.existsSync(CODEX_AUTH) && !fs.existsSync(CODEX_AUTH + ".bak"))
-    fs.copyFileSync(CODEX_AUTH, CODEX_AUTH + ".bak");
-  if (fs.existsSync(CODEX_CONFIG) && !fs.existsSync(CODEX_CONFIG + ".bak"))
-    fs.copyFileSync(CODEX_CONFIG, CODEX_CONFIG + ".bak");
 
-  fs.writeFileSync(CODEX_AUTH, JSON.stringify({ OPENAI_API_KEY: "PROXY_MANAGED" }, null, 2));
-
-  let src = "";
-  if (fs.existsSync(CODEX_CONFIG + ".bak")) src = fs.readFileSync(CODEX_CONFIG + ".bak", "utf-8");
-  else if (fs.existsSync(CODEX_CONFIG)) src = fs.readFileSync(CODEX_CONFIG, "utf-8");
-
-  const lines = src.split("\n");
-  const topLevel = [], sections = [];
-  let cur = null;
-  for (const line of lines) {
-    if (/^\s*\[/.test(line)) { if (cur) sections.push(cur); cur = line + "\n"; }
-    else if (cur) cur += line + "\n";
-    else topLevel.push(line);
+  const authExists = fs.existsSync(CODEX_AUTH);
+  const authSource = authExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
+  if (authExists && !isKobashiManagedAuth(authSource)) {
+    writeTextAtomic(CODEX_AUTH + ".bak", authSource, 0o600);
   }
-  if (cur) sections.push(cur);
 
-  const cleanTop = topLevel
-    .filter(l => !/^\s*model_provider\s*=/.test(l) && !/^\s*base_url\s*=.*127\.0\.0\.1/.test(l))
-    .join("\n").trim();
-  const cleanSections = sections
-    .filter(s => !/^\s*\[model_providers\.(kobashi|copilot-bridge)\]/.test(s))
-    .map(s => s.trim()).join("\n\n");
+  const configExists = fs.existsSync(CODEX_CONFIG);
+  const backupPath = CODEX_CONFIG + ".bak";
+  const backupExists = fs.existsSync(backupPath);
+  let src = "";
+  if (configExists) src = fs.readFileSync(CODEX_CONFIG, "utf-8");
+  // Refresh the baseline whenever the live file belongs to the user (or
+  // another tool), rather than trusting an old .bak that Kobashi may itself
+  // have created in a previous version.
+  if (configExists && !isKobashiManagedConfig(src)) {
+    writeTextAtomic(backupPath, src);
+  } else if (!configExists && backupExists) {
+    const candidate = fs.readFileSync(backupPath, "utf-8");
+    src = isKobashiManagedConfig(candidate)
+      ? restoreCodexConfigContents(candidate, "", { modelCatalogPath: CODEX_MODEL_CATALOG })
+      : candidate;
+  }
 
-  const out = [
-    `model_provider = "kobashi"`, cleanTop, "",
-    `[model_providers.kobashi]`,
-    `name = "Kobashi"`,
-    `base_url = "http://127.0.0.1:${PROXY_PORT}/v1"`,
-    `env_key = "OPENAI_API_KEY"`,
-    `wire_api = "responses"`, "",
-    cleanSections,
-  ].join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  let modelCatalogPath = "";
+  try {
+    modelCatalogPath = ensureKobashiModelCatalog({
+      catalogPath: CODEX_MODEL_CATALOG,
+      onWarning: error => dbg("[Bridge] bundled Codex catalog unavailable:", error.message),
+    }).catalogPath;
+  } catch (error) {
+    dbg("[Bridge] model catalog write failed:", error.message);
+  }
 
-  fs.writeFileSync(CODEX_CONFIG, out);
+  writeTextAtomic(
+    CODEX_AUTH,
+    `${JSON.stringify({ OPENAI_API_KEY: "PROXY_MANAGED" }, null, 2)}\n`,
+    0o600,
+  );
+
+  // The live file may have been edited since the backup was created. Always
+  // merge from it first; the backup is only the restoration baseline.
+  writeTextAtomic(
+    CODEX_CONFIG,
+    injectCodexConfig(src, PROXY_PORT, { modelCatalogPath }),
+  );
 
   if (process.platform === "win32") {
     try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore", windowsHide: true }); } catch {}
@@ -479,39 +522,68 @@ function writeCodexConfig() {
 // Remove only what writeCodexConfig() injected, leaving every other section
 // intact. Deleting the whole file (the old behaviour when no .bak existed) took
 // the user's notify/marketplaces/plugins config with it.
-function stripInjectedCodexConfig() {
+function stripInjectedCodexConfig(backupSource = "", restoreEmptyFile = false) {
   try {
     const src = fs.readFileSync(CODEX_CONFIG, "utf-8");
-    const lines = src.split("\n");
-    const topLevel = [], sections = [];
-    let cur = null;
-    for (const line of lines) {
-      if (/^\s*\[/.test(line)) { if (cur) sections.push(cur); cur = line + "\n"; }
-      else if (cur) cur += line + "\n";
-      else topLevel.push(line);
-    }
-    if (cur) sections.push(cur);
-
-    const cleanTop = topLevel
-      .filter(l => !/^\s*model_provider\s*=/.test(l) && !/^\s*base_url\s*=.*127\.0\.0\.1/.test(l))
-      .join("\n").trim();
-    const cleanSections = sections
-      .filter(s => !/^\s*\[model_providers\.(kobashi|copilot-bridge)\]/.test(s))
-      .map(s => s.trim()).join("\n\n");
-
-    const out = [cleanTop, "", cleanSections].join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    if (out) fs.writeFileSync(CODEX_CONFIG, out + "\n");
+    const out = restoreCodexConfigContents(src, backupSource, {
+      modelCatalogPath: CODEX_MODEL_CATALOG,
+    });
+    if (out || restoreEmptyFile) writeTextAtomic(CODEX_CONFIG, out);
     else fs.unlinkSync(CODEX_CONFIG);   // nothing of the user's left
+    return true;
   } catch (e) {
     dbg("[Bridge] strip codex config failed:", e.message);
+    return false;
   }
 }
 
 function restoreCodexConfig() {
-  if (fs.existsSync(CODEX_AUTH + ".bak")) { fs.copyFileSync(CODEX_AUTH + ".bak", CODEX_AUTH); fs.unlinkSync(CODEX_AUTH + ".bak"); }
-  else if (fs.existsSync(CODEX_AUTH)) fs.unlinkSync(CODEX_AUTH);
-  if (fs.existsSync(CODEX_CONFIG + ".bak")) { fs.copyFileSync(CODEX_CONFIG + ".bak", CODEX_CONFIG); fs.unlinkSync(CODEX_CONFIG + ".bak"); }
-  else if (fs.existsSync(CODEX_CONFIG)) stripInjectedCodexConfig();
+  const authBackupPath = CODEX_AUTH + ".bak";
+  const authBackupExists = fs.existsSync(authBackupPath);
+  let authRestored = false;
+  try {
+    const liveExists = fs.existsSync(CODEX_AUTH);
+    const liveSource = liveExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
+    const backupSource = authBackupExists ? fs.readFileSync(authBackupPath, "utf-8") : "";
+    const liveIsManaged = liveExists && isKobashiManagedAuth(liveSource);
+    const backupIsUsable = authBackupExists && !isKobashiManagedAuth(backupSource);
+
+    if (backupIsUsable && (!liveExists || liveIsManaged)) {
+      writeTextAtomic(CODEX_AUTH, backupSource, 0o600);
+    } else if (liveIsManaged) {
+      fs.unlinkSync(CODEX_AUTH);
+    }
+    authRestored = true;
+  } catch (e) {
+    dbg("[Bridge] restore codex auth failed:", e.message);
+  }
+  if (authRestored && authBackupExists) {
+    try { fs.unlinkSync(authBackupPath); } catch (e) { dbg("[Bridge] remove codex auth backup failed:", e.message); }
+  }
+
+  const backupPath = CODEX_CONFIG + ".bak";
+  const backupExists = fs.existsSync(backupPath);
+  let configRestored = false;
+  try {
+    const backupSource = backupExists ? fs.readFileSync(backupPath, "utf-8") : "";
+    const backupIsUsable = backupExists && !isKobashiManagedConfig(backupSource);
+    if (fs.existsSync(CODEX_CONFIG)) {
+      configRestored = stripInjectedCodexConfig(backupSource, backupIsUsable && backupSource === "");
+    } else {
+      const recovered = backupIsUsable
+        ? backupSource
+        : (backupExists
+          ? restoreCodexConfigContents(backupSource, "", { modelCatalogPath: CODEX_MODEL_CATALOG })
+          : "");
+      if (recovered) writeTextAtomic(CODEX_CONFIG, recovered);
+      configRestored = true;
+    }
+  } catch (e) {
+    dbg("[Bridge] restore codex config failed:", e.message);
+  }
+  if (configRestored && backupExists) {
+    try { fs.unlinkSync(backupPath); } catch (e) { dbg("[Bridge] remove codex config backup failed:", e.message); }
+  }
 
   if (process.platform === "win32") {
     try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore", windowsHide: true }); } catch {}
@@ -956,16 +1028,10 @@ const proxy = http.createServer(async (req, res) => {
     // advertised "gpt-5.2" and "gpt-5.2-codex" have been RETIRED upstream (400
     // "model is not supported" / "not available for integrator") — offering them
     // in the picker meant a user could select a model that fails every turn.
-    // Non-OpenAI models in Copilot's catalog were being withheld even though they
-    // work fine here: grok-4.5/4.6 and mai-code-1.1-flash all return 200 on
-    // POST /v1/responses (re-probed live). The gemini-* entries in the catalog do
-    // NOT ("does not support Responses API"), so they stay out.
-    const models = [
-      "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra",
-      "gpt-5.5", "gpt-5.4", "gpt-5.3-codex",
-      "gpt-5.4-mini", "gpt-5-mini",
-      "grok-4.6", "grok-4.5", "mai-code-1.1-flash",
-    ];
+    // Kobashi's Codex surface intentionally exposes only OpenAI models. Other
+    // Copilot vendors may work at the protocol level, but they do not belong in
+    // the native Codex model picker requested by this integration.
+    const models = KOBASHI_OPENAI_MODEL_SLUGS;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       object: "list",
@@ -1114,8 +1180,25 @@ const proxy = http.createServer(async (req, res) => {
         // Second attempt still failing — clear the token so the NEXT request re-mints.
         if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
       }
-      res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
-      upstreamRes.pipe(res);
+      const contentType = String(upstreamRes.headers["content-type"] || "").toLowerCase();
+      const contentEncoding = String(upstreamRes.headers["content-encoding"] || "").toLowerCase();
+      const normalizeResponsesSse = upstreamRes.statusCode === 200
+        && p.includes("/responses")
+        && contentType.includes("text/event-stream")
+        && (!contentEncoding || contentEncoding === "identity");
+      const responseHeaders = { ...upstreamRes.headers };
+      if (normalizeResponsesSse) delete responseHeaders["content-length"];
+      res.writeHead(upstreamRes.statusCode, responseHeaders);
+      if (normalizeResponsesSse) {
+        const normalizer = createResponsesSseNormalizer();
+        normalizer.on("error", (e) => {
+          dbg(`[Codex] SSE id normalizer error: ${e.message}`);
+          try { res.end(); } catch {}
+        });
+        upstreamRes.pipe(normalizer).pipe(res);
+      } else {
+        upstreamRes.pipe(res);
+      }
       // pipe() does not end the destination when the source errors, so a
       // mid-stream upstream drop would leave the client hanging. Close both ends
       // explicitly, and tear down the upstream if the client disconnects first.
@@ -1162,6 +1245,28 @@ function anthropicToOpenAI(req) {
 
     for (const b of m.content || []) {
       if (b.type === "text") contentParts.push({ type: "text", text: b.text || "" });
+      else if (b.type === "thinking" || b.type === "redacted_thinking") {
+        // Anthropic thinking blocks. OpenAI's chat/completions has no equivalent
+        // field on an INBOUND assistant message — reasoning_text only ever comes
+        // back FROM the model — so these used to be dropped on the floor.
+        //
+        // That silently broke interruption. When a turn is stopped mid-flight,
+        // Claude Code keeps the partial assistant turn in history, and a lot of
+        // "what I was in the middle of doing" lives in the thinking block. Drop
+        // it and the replayed history looks like a turn that simply finished, so
+        // the model happily carries on with the old task instead of noticing it
+        // was cut off and following the new instruction.
+        //
+        // Folding the text into the assistant message is the closest thing this
+        // wire format allows. redacted_thinking carries no readable text (it is
+        // an encrypted blob), so it only leaves a marker — enough for the model
+        // to see that a reasoning step happened and was cut short.
+        if (b.type === "redacted_thinking") {
+          contentParts.push({ type: "text", text: "[reasoning redacted]" });
+        } else if (b.thinking) {
+          contentParts.push({ type: "text", text: `[reasoning]\n${b.thinking}` });
+        }
+      }
       else if (b.type === "image") {
         const p = toImagePart(b.source);
         if (p) contentParts.push(p);
@@ -1507,6 +1612,14 @@ function makeStreamTranslator(model, write, estInputTokens) {
         }
       }
     },
+    // NOTE: there is deliberately no "aborted" branch here. When the user
+    // interrupts, Claude Code closes the socket first, so res.on("close") has
+    // already set finished=true and end() never runs — and even if it did, the
+    // bytes would go to a closed socket. The interruption is therefore recorded
+    // entirely on the CLIENT side; what matters for the next turn is that the
+    // partial assistant turn it saved (thinking blocks included) survives the
+    // translation back to OpenAI, which is what the thinking-block handling in
+    // anthropicToOpenAI() now does.
     end() {
       ensureStart();
       closeOpenBlocks();
