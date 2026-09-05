@@ -12,9 +12,10 @@ const {
   isKobashiManagedAuth,
 } = require("./lib/codex-config");
 const {
-  KOBASHI_OPENAI_MODEL_SLUGS,
   ensureKobashiModelCatalog,
+  getCopilotReasoningEfforts,
   getKobashiModelCatalogPath,
+  selectCopilotOpenAIModels,
 } = require("./lib/codex-model-catalog");
 const { createResponsesSseNormalizer } = require("./lib/responses-sse-normalizer");
 
@@ -435,6 +436,9 @@ const CODEX_DIR = path.resolve(
 const CODEX_AUTH = path.join(CODEX_DIR, "auth.json");
 const CODEX_CONFIG = path.join(CODEX_DIR, "config.toml");
 const CODEX_MODEL_CATALOG = getKobashiModelCatalogPath();
+const CODEX_MODEL_REFRESH_MS = 5 * 60 * 1000;
+let codexModelRefreshTimer = null;
+let lastCodexModelCatalogSignature = null;
 
 function writeTextAtomic(filePath, contents, mode) {
   const tempPath = path.join(
@@ -454,7 +458,98 @@ function writeTextAtomic(filePath, contents, mode) {
   }
 }
 
-function writeCodexConfig() {
+function readCodexModelCatalog() {
+  try {
+    const catalog = JSON.parse(fs.readFileSync(CODEX_MODEL_CATALOG, "utf8"));
+    return catalog && Array.isArray(catalog.models) ? catalog : null;
+  } catch {
+    return null;
+  }
+}
+
+function liveCodexCatalogSignature(copilotModels) {
+  return JSON.stringify(
+    selectCopilotOpenAIModels(copilotModels).map(model => ({
+      id: model.id,
+      name: model.name,
+      vendor: model.vendor,
+      policy: model.policy?.state,
+      capabilities: model.capabilities,
+    })),
+  );
+}
+
+async function refreshCodexModelCatalog(options = {}) {
+  let copilotModels;
+  try {
+    copilotModels = Object.prototype.hasOwnProperty.call(options, "copilotModels")
+      ? options.copilotModels
+      : await getCopilotModelsRaw({ force: !!options.force });
+  } catch (error) {
+    // A transient model-list failure must not replace the last known-good live
+    // catalog with a guessed list. First launch without a catalog still gets a
+    // valid bundled/offline fallback below.
+    const existing = readCodexModelCatalog();
+    if (existing) {
+      dbg("[Codex] live model refresh failed; keeping previous catalog:", error.message);
+      return { catalogPath: CODEX_MODEL_CATALOG, catalog: existing, changed: false };
+    }
+    dbg("[Codex] live model refresh failed; using bundled fallback:", error.message);
+    copilotModels = undefined;
+  }
+
+  const signature = liveCodexCatalogSignature(copilotModels);
+  const currentCatalog = readCodexModelCatalog();
+  if (signature === lastCodexModelCatalogSignature && currentCatalog) {
+    return {
+      catalogPath: CODEX_MODEL_CATALOG,
+      catalog: currentCatalog,
+      changed: false,
+    };
+  }
+
+  const before = currentCatalog;
+  const result = ensureKobashiModelCatalog({
+    catalogPath: CODEX_MODEL_CATALOG,
+    copilotCatalog: copilotModels === undefined ? undefined : { data: copilotModels },
+    onWarning: error => dbg("[Bridge] bundled Codex catalog unavailable:", error.message),
+  });
+  const changed = JSON.stringify(before) !== JSON.stringify(result.catalog);
+  lastCodexModelCatalogSignature = signature;
+
+  if (changed) {
+    log(`[Codex] live models: ${result.catalog.models.map(model => model.slug).join(", ")}`);
+    // Codex watches config.toml. Replacing the already-managed file with the
+    // same bytes nudges a running client to reload model_catalog_json after a
+    // rollout, without modifying any user-owned setting.
+    try {
+      if (fs.existsSync(CODEX_CONFIG)) {
+        const source = fs.readFileSync(CODEX_CONFIG, "utf8");
+        if (isKobashiManagedConfig(source)) writeTextAtomic(CODEX_CONFIG, source);
+      }
+    } catch (error) {
+      dbg("[Codex] config reload nudge failed:", error.message);
+    }
+  }
+  return { ...result, changed };
+}
+
+function stopCodexModelRefresh() {
+  if (codexModelRefreshTimer) clearInterval(codexModelRefreshTimer);
+  codexModelRefreshTimer = null;
+}
+
+function startCodexModelRefresh() {
+  if (codexModelRefreshTimer) return;
+  codexModelRefreshTimer = setInterval(() => {
+    if (!githubToken || !codexEnabled) return;
+    refreshCodexModelCatalog({ force: true }).catch(error =>
+      dbg("[Codex] periodic model refresh failed:", error.message));
+  }, CODEX_MODEL_REFRESH_MS);
+  if (typeof codexModelRefreshTimer.unref === "function") codexModelRefreshTimer.unref();
+}
+
+async function writeCodexConfig() {
   fs.mkdirSync(CODEX_DIR, { recursive: true });
 
   const authExists = fs.existsSync(CODEX_AUTH);
@@ -482,10 +577,7 @@ function writeCodexConfig() {
 
   let modelCatalogPath = "";
   try {
-    modelCatalogPath = ensureKobashiModelCatalog({
-      catalogPath: CODEX_MODEL_CATALOG,
-      onWarning: error => dbg("[Bridge] bundled Codex catalog unavailable:", error.message),
-    }).catalogPath;
+    modelCatalogPath = (await refreshCodexModelCatalog({ force: true })).catalogPath;
   } catch (error) {
     dbg("[Bridge] model catalog write failed:", error.message);
   }
@@ -516,6 +608,7 @@ function writeCodexConfig() {
     try { execSync(`launchctl setenv NO_PROXY "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
     try { execSync(`launchctl setenv no_proxy "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
   }
+  startCodexModelRefresh();
   log("[Bridge] Codex config injected");
 }
 
@@ -538,6 +631,7 @@ function stripInjectedCodexConfig(backupSource = "", restoreEmptyFile = false) {
 }
 
 function restoreCodexConfig() {
+  stopCodexModelRefresh();
   const authBackupPath = CODEX_AUTH + ".bak";
   const authBackupExists = fs.existsSync(authBackupPath);
   let authRestored = false;
@@ -717,7 +811,7 @@ async function loadSession() {
     // one of them came from the device flow — so absent means "device", not unknown.
     authMethod = data.authMethod === "token" ? "token" : "device";
     await ensureCopilotToken();
-    if (codexEnabled) writeCodexConfig();
+    if (codexEnabled) await writeCodexConfig();
     if (claudeEnabled) writeClaudeConfig();
     log("[Bridge] Session restored for", username);
     return true;
@@ -821,6 +915,7 @@ async function ensureCopilotToken() {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
     githubToken = null; copilotToken = null; copilotTokenExpiry = 0; username = null; codexEnabled = false; claudeEnabled = false;
+    clearCopilotModelCache();
     usageCache = null; usageCacheAt = 0;   // never show the revoked account's numbers
     deleteSession();
     throw new Error(`GitHub token revoked (${res.status})`);
@@ -892,37 +987,95 @@ async function getCopilotUsage() {
 // ─── Copilot model list (cached) + Claude model mapping ───────────────────
 let copilotModelsCache = null;
 let copilotModelsCacheAt = 0;
+let copilotModelsRequest = null;
+const COPILOT_MODELS_TTL = 5 * 60 * 1000;
 
-async function getCopilotClaudeModelsRaw() {
-  const now = Date.now();
-  if (copilotModelsCache && now - copilotModelsCacheAt < 300000) return copilotModelsCache;
-  const token = await ensureCopilotToken();
-  const data = await new Promise(async (resolve, reject) => {
+function clearCopilotModelCache() {
+  copilotModelsCache = null;
+  copilotModelsCacheAt = 0;
+  copilotModelsRequest = null;
+  lastCodexModelCatalogSignature = null;
+}
+
+async function requestCopilotModels(token) {
+  return new Promise(async (resolve, reject) => {
     try {
-      const r = await upstreamHttpsRequest({
+      const request = await upstreamHttpsRequest({
         hostname: COPILOT_API, path: "/models", method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
           "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
           "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
           "X-GitHub-Api-Version": "2025-10-01",
+          Accept: "application/json",
         },
       }, res => {
         const chunks = [];
-        res.on("data", c => chunks.push(c));
-        res.on("end", () => {
-          try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
-          catch (e) { reject(e); }
-        });
+        res.on("data", chunk => chunks.push(chunk));
+        res.on("end", () => resolve({
+          status: res.statusCode,
+          raw: Buffer.concat(chunks).toString(),
+        }));
+        res.on("error", reject);
       });
-      r.on("error", reject);
-      r.end();
-    } catch (e) { reject(e); }
+      request.on("error", reject);
+      request.end();
+    } catch (error) {
+      reject(error);
+    }
   });
-  const list = (data.data || []).filter(m => /claude/i.test(m.id || ""));
-  copilotModelsCache = list;
-  copilotModelsCacheAt = now;
-  return list;
+}
+
+async function getCopilotModelsRaw(options = {}) {
+  const now = Date.now();
+  if (!options.force && copilotModelsCache &&
+      now - copilotModelsCacheAt < COPILOT_MODELS_TTL) return copilotModelsCache;
+  if (copilotModelsRequest) return copilotModelsRequest;
+
+  const previous = copilotModelsCache;
+  copilotModelsRequest = (async () => {
+    let token = await ensureCopilotToken();
+    let response = await requestCopilotModels(token);
+    if (response.status === 401 ||
+        (response.status === 400 && isAuthFailureBody(response.raw))) {
+      copilotToken = null;
+      copilotTokenExpiry = 0;
+      token = await ensureCopilotToken();
+      response = await requestCopilotModels(token);
+    }
+
+    if (response.status !== 200) {
+      throw new Error(`Copilot model list returned ${response.status}`);
+    }
+    let data;
+    try {
+      data = JSON.parse(response.raw);
+    } catch {
+      throw new Error("Copilot model list returned invalid JSON");
+    }
+    if (!data || !Array.isArray(data.data)) {
+      throw new Error("Copilot model list did not contain a data array");
+    }
+    copilotModelsCache = data.data;
+    copilotModelsCacheAt = Date.now();
+    return copilotModelsCache;
+  })();
+
+  try {
+    return await copilotModelsRequest;
+  } catch (error) {
+    if (previous) {
+      dbg("[Models] live refresh failed; using stale cache:", error.message);
+      return previous;
+    }
+    throw error;
+  } finally {
+    copilotModelsRequest = null;
+  }
+}
+
+async function getCopilotClaudeModelsRaw() {
+  return (await getCopilotModelsRaw()).filter(model => /claude/i.test(model.id || ""));
 }
 
 // Convert a Copilot model id (e.g. "claude-sonnet-4.6", "claude-opus-4.6-1m") to
@@ -1019,23 +1172,32 @@ const proxy = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: "Codex bridge not active" }));
     return;
   }
-  // GET /v1/models — Codex CLI uses this as a health-check / model picker.
-  // Copilot doesn't expose this endpoint, so return a static list of the
-  // models Copilot actually supports via the Responses API.
+  // GET /v1/models — return the account-scoped list from Copilot's live model
+  // endpoint. Keep the custom Codex catalog in sync at the same time so both
+  // CLI and desktop pickers learn about newly rolled-out models.
   if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
-    // Only models Copilot's Responses API actually accepts. Re-probed against the
-    // live API: every id below returns 200 on POST /v1/responses. The previously
-    // advertised "gpt-5.2" and "gpt-5.2-codex" have been RETIRED upstream (400
-    // "model is not supported" / "not available for integrator") — offering them
-    // in the picker meant a user could select a model that fails every turn.
-    // Kobashi's Codex surface intentionally exposes only OpenAI models. Other
-    // Copilot vendors may work at the protocol level, but they do not belong in
-    // the native Codex model picker requested by this integration.
-    const models = KOBASHI_OPENAI_MODEL_SLUGS;
+    let models = [];
+    try {
+      const allModels = await getCopilotModelsRaw();
+      models = selectCopilotOpenAIModels(allModels);
+      await refreshCodexModelCatalog({ copilotModels: allModels });
+    } catch (error) {
+      dbg("[Codex] GET /v1/models live lookup failed:", error.message);
+      models = (readCodexModelCatalog()?.models || []).map(model => ({
+        id: model.slug,
+        name: model.display_name,
+        vendor: "OpenAI",
+      }));
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       object: "list",
-      data: models.map(id => ({ id, object: "model", created: 0, owned_by: "copilot" })),
+      data: models.map(model => ({
+        id: model.id,
+        object: "model",
+        created: Number(model.created) || 0,
+        owned_by: String(model.vendor || "copilot").toLowerCase().replace(/\s+/g, "-"),
+      })),
     }));
     return;
   }
@@ -1071,27 +1233,31 @@ const proxy = http.createServer(async (req, res) => {
           log(`[Codex] model ${original} → ${j.model}`);
         }
       }
-      // Reasoning effort clamp. Codex CLI happily writes any string into
-      // model_reasoning_effort (e.g. "ultra"), and each Copilot model accepts a
-      // DIFFERENT subset — verified live:
-      //   gpt-5.6-sol/luna/terra : none low medium high xhigh max
-      //   gpt-5.5/5.4/5.3-codex/5.4-mini : none low medium high xhigh   (no max)
-      //   gpt-5-mini             : minimal low medium high              (no none/xhigh/max)
-      //   grok-4.5/4.6           : minimal low medium high xhigh        (no none/max)
-      //   mai-code-1.1-flash     : minimal low medium high              (no none/xhigh/max)
-      // An unsupported value is a hard 400 on EVERY turn, which reads to the user as
-      // "Codex is broken". Coerce to the nearest tier the selected model supports.
-      // Note the non-OpenAI models reject "none" outright — a client asking for no
-      // reasoning lands on "minimal", the closest thing they actually accept.
+      // Reasoning effort clamp. The supported values come from the same live
+      // Copilot model record used by the picker, so a newly rolled-out model
+      // does not need another hard-coded regex here. An unsupported value is a
+      // hard 400 on every turn; coerce it to the nearest advertised tier.
       if (j.reasoning && typeof j.reasoning.effort === "string") {
         const m = String(j.model || "");
-        const tiers = /^gpt-5\.6/.test(m)
-          ? ["none", "low", "medium", "high", "xhigh", "max"]
-          : /^(gpt-5-mini|mai-code)/.test(m)
-            ? ["minimal", "low", "medium", "high"]
-            : /^grok-/.test(m)
-              ? ["minimal", "low", "medium", "high", "xhigh"]
-              : ["none", "low", "medium", "high", "xhigh"];
+        let tiers = [];
+        try {
+          const models = await getCopilotModelsRaw();
+          const liveModel = models.find(model => model && model.id === m);
+          if (liveModel) tiers = getCopilotReasoningEfforts(liveModel);
+        } catch (error) {
+          dbg("[Codex] reasoning capability lookup failed:", error.message);
+        }
+        // Offline fallback for a request that arrived before any live catalog
+        // was cached. The next successful model refresh replaces this guess.
+        if (!tiers.length) {
+          tiers = /^gpt-(?:5\.6|[6-9])/.test(m)
+            ? ["low", "medium", "high", "xhigh", "max"]
+            : /^(gpt-5-mini|mai-code)/.test(m)
+              ? ["minimal", "low", "medium", "high"]
+              : /^grok-/.test(m)
+                ? ["minimal", "low", "medium", "high", "xhigh"]
+                : ["none", "low", "medium", "high", "xhigh"];
+        }
         const want = j.reasoning.effort.toLowerCase();
         if (!tiers.includes(want)) {
           // Rank unknown/aspirational names so they land on the closest real tier
@@ -1849,12 +2015,15 @@ const ui = http.createServer(async (req, res) => {
     );
     if (r.body.access_token) {
       githubToken = r.body.access_token;
+      copilotToken = null;
+      copilotTokenExpiry = 0;
+      clearCopilotModelCache();
       const u = await httpsRequest({ hostname: "api.github.com", path: "/user", method: "GET", headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2" } });
       username = u.body.login || "";
       authMethod = "device";
       codexEnabled = true;
       claudeEnabled = true;
-      writeCodexConfig();
+      await writeCodexConfig();
       writeClaudeConfig();
       saveSession();
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ access_token: githubToken, username }));
@@ -1881,6 +2050,7 @@ const ui = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: false, reason: v.reason, login: v.login })); return;
     }
 
+    clearCopilotModelCache();
     githubToken = token;
     username = v.login;
     copilotToken = v.copilot;
@@ -1888,7 +2058,7 @@ const ui = http.createServer(async (req, res) => {
     authMethod = "token";
     codexEnabled = true;
     claudeEnabled = true;
-    writeCodexConfig();
+    await writeCodexConfig();
     writeClaudeConfig();
     saveSession();
     log("[Bridge] Signed in via pasted token as", username);
@@ -1931,7 +2101,7 @@ const ui = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
     codexEnabled = !codexEnabled;
-    if (codexEnabled) writeCodexConfig(); else restoreCodexConfig();
+    if (codexEnabled) await writeCodexConfig(); else restoreCodexConfig();
     saveSession();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ codexEnabled })); return;
   }
@@ -1950,6 +2120,7 @@ const ui = http.createServer(async (req, res) => {
     // expiry paired with a fresh token from the *next* sign-in would make the
     // cache look valid when it is not.
     copilotTokenExpiry = 0;
+    clearCopilotModelCache();
     // Same reasoning for the usage cache: signing in as someone else must not
     // briefly show the previous account's credit count.
     usageCache = null; usageCacheAt = 0;

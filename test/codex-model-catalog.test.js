@@ -4,11 +4,12 @@ const os = require("os");
 const path = require("path");
 const test = require("node:test");
 const {
-  KOBASHI_OPENAI_MODEL_SLUGS,
   buildKobashiModelCatalog,
   createKobashiModelCatalog,
   ensureKobashiModelCatalog,
+  getCopilotReasoningEfforts,
   loadBundledCodexModelCatalog,
+  selectCopilotOpenAIModels,
   writeModelCatalogAtomic,
 } = require("../lib/codex-model-catalog");
 
@@ -31,6 +32,45 @@ function modelRecord(slug, overrides = {}) {
     experimental_supported_tools: [],
     base_instructions: `Bundled instructions for ${slug}`,
     ...overrides,
+  };
+}
+
+function copilotModel(id, overrides = {}) {
+  const base = {
+    id,
+    name: id,
+    vendor: "OpenAI",
+    version: id,
+    model_picker_enabled: true,
+    policy: { state: "enabled" },
+    capabilities: {
+      type: "chat",
+      limits: {
+        max_context_window_tokens: 400000,
+        max_prompt_tokens: 272000,
+      },
+      supports: {
+        streaming: true,
+        tool_calls: true,
+        reasoning_effort: ["low", "medium", "high"],
+      },
+    },
+  };
+  return {
+    ...base,
+    ...overrides,
+    capabilities: {
+      ...base.capabilities,
+      ...(overrides.capabilities || {}),
+      limits: {
+        ...base.capabilities.limits,
+        ...(overrides.capabilities?.limits || {}),
+      },
+      supports: {
+        ...base.capabilities.supports,
+        ...(overrides.capabilities?.supports || {}),
+      },
+    },
   };
 }
 
@@ -60,93 +100,160 @@ function withTempDir(run) {
   }
 }
 
-test("catalog is an exact OpenAI allowlist and preserves bundled metadata", () => {
-  const expectedModels = [
+test("selects the live account-enabled OpenAI chat models without a fixed allowlist", () => {
+  const selected = selectCopilotOpenAIModels({
+    data: [
+      copilotModel("gpt-5-mini", { vendor: "Azure OpenAI" }),
+      copilotModel("gpt-6-astra", { name: "GPT-6 Astra" }),
+      copilotModel("gpt-5.6-sol"),
+      copilotModel("gpt-5.6-sol-fast", { name: "GPT-5.6 Sol Fast (Internal only)" }),
+      copilotModel("gpt-7-disabled", { policy: { state: "disabled" } }),
+      copilotModel("gpt-7-hidden", { model_picker_enabled: false }),
+      copilotModel("gpt-7-embedding", { capabilities: { type: "embeddings" } }),
+      copilotModel("gemini-4-pro", { vendor: "Google" }),
+      copilotModel("gpt-6-astra"),
+    ],
+  });
+
+  assert.deepEqual(selected.map(model => model.id), [
+    "gpt-6-astra",
     "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
     "gpt-5-mini",
-  ];
-  const sourceModels = KOBASHI_OPENAI_MODEL_SLUGS.map(slug => modelRecord(slug));
-  sourceModels.push(
-    modelRecord("gpt-5.2"),
-    modelRecord("gpt-5.6-sol-fast"),
-    modelRecord("grok-4.6"),
-    modelRecord("mai-code-1.1-flash"),
-    modelRecord("gpt-daybreak-blue-latest"),
-  );
-  const source = { models: sourceModels };
-
-  const result = buildKobashiModelCatalog(source);
-  assert.deepEqual(KOBASHI_OPENAI_MODEL_SLUGS, expectedModels);
-  assert.deepEqual(result.models.map(model => model.slug), expectedModels);
-  assert.deepEqual(result.models.map(model => model.priority), [1, 2, 3, 4, 5, 6, 7, 8]);
-  assert.ok(result.models.every(model => model.visibility === "list"));
-  assert.equal(result.models[4].base_instructions, "Bundled instructions for gpt-5.4");
-  assert.equal(result.models[4].truncation_policy.limit, 12345);
-  assert.deepEqual(
-    result.models[0].supported_reasoning_levels.map(level => level.effort),
-    ["low", "medium", "high", "xhigh", "max", "ultra"],
-  );
-  assert.deepEqual(
-    result.models[4].supported_reasoning_levels.map(level => level.effort),
-    ["low", "medium", "high", "xhigh"],
-  );
-  for (const model of result.models.slice(0, 5)) {
-    assert.equal(model.context_window, 1000000);
-    assert.equal(model.max_context_window, 1000000);
-    assert.equal(model.auto_compact_token_limit, 900000);
-  }
-  for (const model of result.models.slice(5, 7)) {
-    assert.equal(model.context_window, 272000);
-    assert.equal(model.max_context_window, 272000);
-    assert.equal("auto_compact_token_limit" in model, false);
-  }
-  assert.equal(result.models[7].context_window, 128000);
-  assert.equal(result.models[7].max_context_window, 128000);
-  assert.equal("auto_compact_token_limit" in result.models[7], false);
-
-  // Building a catalog must not mutate the installed catalog supplied by Codex.
-  assert.equal(source.models.find(model => model.slug === "gpt-5.4").visibility, "hide");
-  assert.equal(source.models.find(model => model.slug === "gpt-5.4").priority, 99);
+  ]);
 });
 
-test("missing models clone the nearest bundled family metadata", () => {
-  const fullMetadata = { family: "full", nested: { value: 1 } };
-  const miniMetadata = { family: "mini", nested: { value: 2 } };
-  const source = {
+test("normalizes live reasoning efforts to values Codex understands", () => {
+  const model = copilotModel("gpt-7", {
+    capabilities: {
+      supports: {
+        reasoning_effort: ["HIGH", "low", "future", "max", "low", "none"],
+      },
+    },
+  });
+  assert.deepEqual(getCopilotReasoningEfforts(model), ["none", "low", "high", "max"]);
+});
+
+test("live models drive the catalog and exact bundled metadata is preserved", () => {
+  const astraMetadata = { family: "astra", nested: { value: 1 } };
+  const bundled = {
     models: [
-      modelRecord("gpt-5.4", { kobashi_test_metadata: fullMetadata }),
-      modelRecord("gpt-5.4-mini", { kobashi_test_metadata: miniMetadata }),
+      modelRecord("gpt-6-astra", {
+        display_name: "GPT-6-Astra",
+        description: "Bundled Astra description",
+        default_reasoning_level: "low",
+        supported_reasoning_levels: [
+          { effort: "low", description: "Bundled low" },
+          { effort: "medium", description: "Bundled medium" },
+          { effort: "high", description: "Bundled high" },
+          { effort: "xhigh", description: "Bundled xhigh" },
+          { effort: "max", description: "Bundled max" },
+          { effort: "ultra", description: "Bundled ultra" },
+        ],
+        kobashi_test_metadata: astraMetadata,
+      }),
+      modelRecord("gpt-5.6-sol"),
+    ],
+  };
+  const live = {
+    data: [
+      copilotModel("gpt-5.6-sol"),
+      copilotModel("gpt-6-astra", {
+        name: "GPT-6 Astra",
+        capabilities: {
+          limits: {
+            max_context_window_tokens: 1000000,
+            max_prompt_tokens: 872000,
+          },
+          supports: {
+            reasoning_effort: ["low", "medium", "high", "xhigh", "max"],
+          },
+        },
+      }),
     ],
   };
 
-  const result = buildKobashiModelCatalog(source);
-  const codex53 = result.models.find(model => model.slug === "gpt-5.3-codex");
-  const mini5 = result.models.find(model => model.slug === "gpt-5-mini");
+  const result = buildKobashiModelCatalog(bundled, live);
+  assert.deepEqual(result.models.map(model => model.slug), ["gpt-6-astra", "gpt-5.6-sol"]);
+  assert.deepEqual(result.models.map(model => model.priority), [1, 2]);
 
-  assert.equal(codex53.kobashi_test_metadata.family, "full");
-  assert.equal(mini5.kobashi_test_metadata.family, "mini");
-  assert.notEqual(codex53.kobashi_test_metadata, fullMetadata);
-  assert.notEqual(mini5.kobashi_test_metadata.nested, miniMetadata.nested);
+  const astra = result.models[0];
+  assert.equal(astra.display_name, "GPT-6-Astra");
+  assert.equal(astra.description, "Bundled Astra description");
+  assert.equal(astra.context_window, 1000000);
+  assert.equal(astra.max_context_window, 1000000);
+  assert.equal(astra.auto_compact_token_limit, 872000);
   assert.deepEqual(
-    codex53.supported_reasoning_levels.map(level => level.effort),
-    ["low", "medium", "high", "xhigh"],
+    astra.supported_reasoning_levels.map(level => level.effort),
+    ["low", "medium", "high", "xhigh", "max", "ultra"],
   );
-  assert.deepEqual(
-    mini5.supported_reasoning_levels.map(level => level.effort),
-    ["minimal", "low", "medium", "high"],
-  );
+  assert.equal(astra.kobashi_test_metadata.family, "astra");
+  assert.notEqual(astra.kobashi_test_metadata, astraMetadata);
+  result.models.forEach(assertCodexMinimumRecord);
 });
 
-test("invalid or unavailable bundled data produces a valid small fallback", () => {
+test("a future live model is synthesized from the nearest bundle metadata", () => {
+  const fullMetadata = { family: "full", nested: { value: 1 } };
+  const bundled = {
+    models: [
+      modelRecord("gpt-5.6-sol", { kobashi_test_metadata: fullMetadata }),
+      modelRecord("gpt-5.6-luna", { kobashi_test_metadata: { family: "small" } }),
+    ],
+  };
+  const live = {
+    data: [
+      copilotModel("gpt-7-orbit", {
+        name: "GPT-7 Orbit",
+        capabilities: {
+          limits: {
+            max_context_window_tokens: 1200000,
+            max_prompt_tokens: 950000,
+          },
+          supports: {
+            reasoning_effort: ["low", "medium", "high", "xhigh", "max"],
+          },
+        },
+      }),
+    ],
+  };
+
+  const result = buildKobashiModelCatalog(bundled, live);
+  const orbit = result.models[0];
+  assert.equal(orbit.slug, "gpt-7-orbit");
+  assert.equal(orbit.display_name, "GPT-7 Orbit");
+  assert.match(orbit.description, /GitHub Copilot/);
+  assert.equal(orbit.kobashi_test_metadata.family, "full");
+  assert.notEqual(orbit.kobashi_test_metadata, fullMetadata);
+  assert.equal(orbit.context_window, 1000000);
+  assert.equal(orbit.auto_compact_token_limit, 900000);
+  assert.deepEqual(
+    orbit.supported_reasoning_levels.map(level => level.effort),
+    ["low", "medium", "high", "xhigh", "max"],
+  );
+  assertCodexMinimumRecord(orbit);
+});
+
+test("missing live data falls back to visible bundled OpenAI models", () => {
+  const result = buildKobashiModelCatalog({
+    models: [
+      modelRecord("gpt-5.6-sol", { visibility: "list", priority: 2 }),
+      modelRecord("gpt-6-astra", { visibility: "list", priority: 1 }),
+      modelRecord("gpt-5.4", { visibility: "hide" }),
+      modelRecord("gpt-internal-preview", {
+        display_name: "GPT Internal Only",
+        visibility: "list",
+      }),
+      modelRecord("codex-auto-review", { visibility: "list" }),
+    ],
+  });
+
+  assert.deepEqual(result.models.map(model => model.slug), ["gpt-6-astra", "gpt-5.6-sol"]);
+  result.models.forEach(assertCodexMinimumRecord);
+});
+
+test("invalid or unavailable inputs produce a valid emergency fallback", () => {
   for (const input of [undefined, null, {}, { models: "invalid" }]) {
     const result = buildKobashiModelCatalog(input);
-    assert.deepEqual(result.models.map(model => model.slug), KOBASHI_OPENAI_MODEL_SLUGS);
+    assert.deepEqual(result.models.map(model => model.slug), ["gpt-5"]);
     result.models.forEach(assertCodexMinimumRecord);
   }
 });
@@ -165,24 +272,50 @@ test("bundled catalog loader isolates Codex from the user's real config", () => 
         assert.notEqual(scratchDir, "must-not-be-used");
         assert.equal(path.dirname(scratchDir), tempRoot);
         assert.ok(fs.existsSync(scratchDir));
-        return JSON.stringify({ models: [modelRecord("gpt-5.4")] });
+        return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
       },
     });
 
-    assert.equal(result.models[0].slug, "gpt-5.4");
+    assert.equal(result.models[0].slug, "gpt-6-astra");
     assert.equal(fs.existsSync(scratchDir), false);
+  });
+});
+
+test("bundled catalog loader discovers the ChatGPT app Codex binary", () => {
+  withTempDir(tempRoot => {
+    const commands = [];
+    const appCommand = "/Applications/ChatGPT.app/Contents/Resources/codex";
+    const fsImpl = {
+      ...fs,
+      existsSync(value) {
+        return value === appCommand || fs.existsSync(value);
+      },
+    };
+    const result = loadBundledCodexModelCatalog({
+      tempRoot,
+      fsImpl,
+      execFileSyncImpl(command) {
+        commands.push(command);
+        if (command === "codex") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+        return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
+      },
+    });
+
+    assert.deepEqual(commands, ["codex", appCommand]);
+    assert.equal(result.models[0].slug, "gpt-6-astra");
   });
 });
 
 test("catalog creation falls back safely when Codex cannot be queried", () => {
   let warning;
   const result = createKobashiModelCatalog({
+    codexCommand: "missing-codex",
     execFileSyncImpl() { throw new Error("Codex unavailable"); },
     onWarning(error) { warning = error; },
   });
 
   assert.match(warning.message, /Codex unavailable/);
-  assert.deepEqual(result.models.map(model => model.slug), KOBASHI_OPENAI_MODEL_SLUGS);
+  assert.deepEqual(result.models.map(model => model.slug), ["gpt-5"]);
   result.models.forEach(assertCodexMinimumRecord);
 });
 
@@ -223,14 +356,16 @@ test("atomic writer preserves the previous catalog when rename fails", () => {
   });
 });
 
-test("ensure helper writes only beneath an explicitly supplied home directory", () => {
+test("ensure helper writes a live catalog only beneath the supplied home", () => {
   withTempDir(homeDir => {
     const result = ensureKobashiModelCatalog({
       homeDir,
-      bundledCatalog: { models: [modelRecord("gpt-5.4")] },
+      bundledCatalog: { models: [modelRecord("gpt-6-astra")] },
+      copilotCatalog: { data: [copilotModel("gpt-6-astra")] },
     });
 
     assert.equal(result.catalogPath, path.join(homeDir, ".kobashi", "codex-model-catalog.json"));
     assert.deepEqual(JSON.parse(fs.readFileSync(result.catalogPath, "utf8")), result.catalog);
+    assert.deepEqual(result.catalog.models.map(model => model.slug), ["gpt-6-astra"]);
   });
 });
