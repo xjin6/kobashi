@@ -30,18 +30,30 @@ No installation required. No dependencies. Just download and double-click.
 
 ## How It Works
 
-1. **Double-click** the app — a small UI window opens in your browser
+1. **Double-click** the app — a native window opens on macOS; Windows uses a browser app window
 2. **Connect with GitHub** — authorize via GitHub device flow
 3. **Toggle the bridges** — enable Claude Bridge and/or Codex Bridge
 4. **Use them normally** — Kobashi auto-configures `~/.claude/settings.json` and `~/.codex/` to route API calls through the local proxy
 
 The bridge intercepts API requests on localhost and forwards them to the GitHub Copilot API using your Copilot token. It manages token refresh, config injection, cleanup, and Anthropic↔OpenAI format translation automatically.
 
+### macOS window and background behavior
+
+Closing the native app window with the red close button leaves Kobashi and its
+enabled bridges running, with its icon in the Dock. Click the Dock icon to restore
+the same window and UI state, including after minimizing or hiding the app.
+Closing and reopening the window does not restart the bridges.
+
+To stop Kobashi, use **Cmd-Q**, **Kobashi > Quit Kobashi**, or **Dock > Quit**.
+Quitting stops the bridge process and runs its existing configuration cleanup.
+This does not add login startup or prevent macOS from sleeping. The browser-based
+Windows and CLI launch behavior is unchanged.
+
 ## Requirements
 
 - **macOS** (Apple Silicon or Intel) or **Windows 10/11**
 - **GitHub Copilot subscription** (Individual, Business, or Enterprise)
-- **Chrome, Edge, Brave, or Arc** for the standalone app window (falls back to default browser)
+- **Chrome, Edge, Brave, or Arc** for browser-based launches on Windows or via the CLI (falls back to default browser); the macOS app uses a native WebKit window
 - **Claude Code** or **OpenAI Codex** CLI / VS Code extension
 
 ## Features
@@ -54,6 +66,29 @@ The bridge intercepts API requests on localhost and forwards them to the GitHub 
 - Auto-detects system HTTP(S) proxy — routes only Bridge's upstream traffic through it, leaving other apps untouched
 - Light/dark mode with system preference detection
 - Single portable executable, no installation needed
+
+## Development checks
+
+Run `npm test` for the Node.js regression tests. On macOS with Xcode Command Line
+Tools and a graphical login session, run `npm run test:mac` for the native window
+lifecycle checks. These compile the real app delegate with an isolated test entry
+point and use a disposable child process instead of the bridge; they do not use
+your credentials, modify your client configuration, or bind the bridge ports.
+The runner selects the Xcode default Swift toolchain.
+
+Native checks exercise close/reopen, repeated restoration, minimization, and the
+termination callback. Actual Dock activation, Cmd-Q/Dock Quit delivery, and live
+inference continuity still need a hands-on macOS smoke test. Never stop a running
+Kobashi instance from an automated test.
+
+For a safe hands-on check while your real bridge stays running, run
+`npm run test:mac:smoke`. This opens **Kobashi Lifecycle Test (no bridge)** with a
+different bundle identifier, a counter, and a disposable child's PID. Close its
+window, wait, and click its Dock icon: the counter should advance and the PID
+should stay the same. Repeat after minimizing and hiding. Quit **only the test
+app** with Cmd-Q; rerun to check Dock > Quit. The terminal confirms its child has
+stopped. This checks native event delivery, not real inference or client-config
+cleanup. The temporary test bundle is removed when the test exits.
 
 ## License
 
