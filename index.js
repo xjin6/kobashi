@@ -12,12 +12,19 @@ const {
   isKobashiManagedAuth,
 } = require("./lib/codex-config");
 const {
-  ensureKobashiModelCatalog,
-  getCopilotReasoningEfforts,
+  EMPTY_CATALOG_MODEL_ID,
+  buildKobashiModelCatalog,
+  loadBundledCodexModelCatalog,
+  writeModelCatalogAtomic,
   getKobashiModelCatalogPath,
   selectCopilotOpenAIModels,
 } = require("./lib/codex-model-catalog");
 const { createResponsesSseNormalizer } = require("./lib/responses-sse-normalizer");
+const { normalizeCodexRequest, retryCodexRequest } = require("./lib/codex-request-compat");
+const { CodexModelCapabilities } = require("./lib/codex-model-capabilities");
+const { CodexClientLifecycle } = require("./lib/codex-client-lifecycle");
+const { probeCodexModel } = require("./lib/codex-model-probe");
+const { createCodexProbeTransport } = require("./lib/codex-probe-transport");
 
 const DEBUG = process.argv.includes("--debug");
 const log = (...a) => console.log(...a);
@@ -436,9 +443,46 @@ const CODEX_DIR = path.resolve(
 const CODEX_AUTH = path.join(CODEX_DIR, "auth.json");
 const CODEX_CONFIG = path.join(CODEX_DIR, "config.toml");
 const CODEX_MODEL_CATALOG = getKobashiModelCatalogPath();
-const CODEX_MODEL_REFRESH_MS = 5 * 60 * 1000;
-let codexModelRefreshTimer = null;
-let lastCodexModelCatalogSignature = null;
+let codexModelSessionStarted = false;
+let codexModelSessionAwaitingClient = false;
+let codexModelSessionRequest = null;
+let codexModelSessionGeneration = 0;
+let codexBundledCatalog = { models: [] };
+const requestCodexProbe = createCodexProbeTransport({
+  request: upstreamHttpsRequest, token: ensureCopilotToken, hostname: COPILOT_API,
+  invalidateToken: () => { copilotToken = null; copilotTokenExpiry = 0; },
+  isAuthFailure: isAuthFailureBody,
+});
+const codexCapabilities = new CodexModelCapabilities({
+  probe: (model, native) => probeCodexModel(model, native, requestCodexProbe),
+  cachePath: path.join(path.dirname(CODEX_MODEL_CATALOG), "codex-model-capabilities.json"),
+  onChange: () => {
+    if (githubToken && codexEnabled) {
+      try { publishCodexModelCatalog(); }
+      catch (error) { dbg("[Codex] capability catalog publish failed:", error.message); }
+    }
+  },
+});
+
+const codexClientWatcher = new CodexClientLifecycle({
+  onStart: ({ initial }) => {
+    // The first request can arrive before the first process snapshot. Treat
+    // those as one startup, not two paid validation rounds.
+    if (codexModelSessionStarted && (initial || codexModelSessionAwaitingClient)) {
+      codexModelSessionAwaitingClient = false;
+      return;
+    }
+    if (githubToken && codexEnabled) return beginCodexModelSession();
+  },
+  onStop: () => {
+    codexModelSessionGeneration++;
+    codexModelSessionStarted = false;
+    codexModelSessionAwaitingClient = false;
+    codexModelSessionRequest = null;
+    codexCapabilities.pause();
+  },
+  onError: error => dbg("[Codex] local client detection failed:", error.message),
+});
 
 function writeTextAtomic(filePath, contents, mode) {
   const tempPath = path.join(
@@ -461,95 +505,97 @@ function writeTextAtomic(filePath, contents, mode) {
 function readCodexModelCatalog() {
   try {
     const catalog = JSON.parse(fs.readFileSync(CODEX_MODEL_CATALOG, "utf8"));
-    return catalog && Array.isArray(catalog.models) ? catalog : null;
+    if (!catalog || !Array.isArray(catalog.models)) return null;
+    // Codex requires a non-empty on-disk catalog. Its disabled storage sentinel
+    // represents an empty picker and must never appear in the models endpoint.
+    return { ...catalog, models: catalog.models.filter(model => model.slug !== EMPTY_CATALOG_MODEL_ID) };
   } catch {
     return null;
   }
 }
 
-function liveCodexCatalogSignature(copilotModels) {
-  return JSON.stringify(
-    selectCopilotOpenAIModels(copilotModels).map(model => ({
-      id: model.id,
-      name: model.name,
-      vendor: model.vendor,
-      policy: model.policy?.state,
-      capabilities: model.capabilities,
-    })),
-  );
+function beginCodexModelSession({ awaitingClient = false } = {}) {
+  const generation = ++codexModelSessionGeneration;
+  codexModelSessionStarted = true;
+  codexModelSessionAwaitingClient = awaitingClient;
+  codexCapabilities.pause();
+  const request = refreshCodexModelCatalog({ force: true, revalidate: true,
+    sessionGeneration: generation }).finally(() => {
+    if (codexModelSessionRequest === request) codexModelSessionRequest = null;
+  });
+  codexModelSessionRequest = request;
+  return request;
+}
+
+function ensureCodexModelSession() {
+  if (!codexModelSessionStarted) return beginCodexModelSession({ awaitingClient: true });
+  return codexModelSessionRequest || Promise.resolve();
 }
 
 async function refreshCodexModelCatalog(options = {}) {
+  const account = githubToken;
+  codexCapabilities.setAccount(account);
+  codexCapabilities.resume();
   let copilotModels;
   try {
-    copilotModels = Object.prototype.hasOwnProperty.call(options, "copilotModels")
-      ? options.copilotModels
-      : await getCopilotModelsRaw({ force: !!options.force });
+    copilotModels = Object.hasOwn(options, "copilotModels")
+      ? options.copilotModels : await getCopilotModelsRaw({ force: !!options.force });
   } catch (error) {
-    // A transient model-list failure must not replace the last known-good live
-    // catalog with a guessed list. First launch without a catalog still gets a
-    // valid bundled/offline fallback below.
-    const existing = readCodexModelCatalog();
-    if (existing) {
-      dbg("[Codex] live model refresh failed; keeping previous catalog:", error.message);
-      return { catalogPath: CODEX_MODEL_CATALOG, catalog: existing, changed: false };
-    }
-    dbg("[Codex] live model refresh failed; using bundled fallback:", error.message);
-    copilotModels = undefined;
+    dbg("[Codex] model discovery unavailable; retaining the last verified snapshot:", error.message);
   }
-
-  const signature = liveCodexCatalogSignature(copilotModels);
-  const currentCatalog = readCodexModelCatalog();
-  if (signature === lastCodexModelCatalogSignature && currentCatalog) {
-    return {
-      catalogPath: CODEX_MODEL_CATALOG,
-      catalog: currentCatalog,
-      changed: false,
-    };
+  if (githubToken !== account || !codexEnabled || (options.sessionGeneration !== undefined &&
+      options.sessionGeneration !== codexModelSessionGeneration)) {
+    return { catalogPath: CODEX_MODEL_CATALOG, catalog: { models: [] } };
   }
-
-  const before = currentCatalog;
-  const result = ensureKobashiModelCatalog({
-    catalogPath: CODEX_MODEL_CATALOG,
-    copilotCatalog: copilotModels === undefined ? undefined : { data: copilotModels },
-    onWarning: error => dbg("[Bridge] bundled Codex catalog unavailable:", error.message),
+  try {
+    // Re-read native capabilities independently of the Copilot catalog. No
+    // model-name table or rebuild is needed for a new native model/Ultra mode.
+    codexBundledCatalog = loadBundledCodexModelCatalog({ timeout: 5000 });
+  } catch (error) {
+    dbg("[Codex] native capability refresh unavailable:", error.message);
+  }
+  if (copilotModels !== undefined) codexCapabilities.update(copilotModels, codexBundledCatalog, {
+    revalidate: !!options.revalidate,
   });
-  const changed = JSON.stringify(before) !== JSON.stringify(result.catalog);
-  lastCodexModelCatalogSignature = signature;
+  return publishCodexModelCatalog();
+}
 
+function publishCodexModelCatalog() {
+  const before = readCodexModelCatalog();
+  const catalog = codexCapabilities.hasSnapshot
+    ? buildKobashiModelCatalog(codexBundledCatalog, codexCapabilities.models())
+    // v2.1.5 saved verdicts without discovery metadata. Migrate only entries
+    // proven for this account; never preserve another account's picker.
+    : { models: (before?.models || []).filter(model => codexCapabilities.wasVerified(model.slug)) };
+  writeModelCatalogAtomic(CODEX_MODEL_CATALOG, catalog);
+  const result = { catalogPath: CODEX_MODEL_CATALOG, catalog };
+  const changed = JSON.stringify(before) !== JSON.stringify(catalog);
   if (changed) {
     log(`[Codex] live models: ${result.catalog.models.map(model => model.slug).join(", ")}`);
-    // Codex watches config.toml. Replacing the already-managed file with the
-    // same bytes nudges a running client to reload model_catalog_json after a
-    // rollout, without modifying any user-owned setting.
-    try {
-      if (fs.existsSync(CODEX_CONFIG)) {
-        const source = fs.readFileSync(CODEX_CONFIG, "utf8");
-        if (isKobashiManagedConfig(source)) writeTextAtomic(CODEX_CONFIG, source);
-      }
-    } catch (error) {
-      dbg("[Codex] config reload nudge failed:", error.message);
-    }
+    // The native app server reads model_catalog_json only at process start.
+    // Rewriting config.toml (even with new contents) does not refresh model/list.
+    // Keep the file ready for the next launch instead of sending fake nudges.
   }
   return { ...result, changed };
 }
 
-function stopCodexModelRefresh() {
-  if (codexModelRefreshTimer) clearInterval(codexModelRefreshTimer);
-  codexModelRefreshTimer = null;
+function stopCodexClientWatch() {
+  codexClientWatcher.stop();
+  codexModelSessionGeneration++;
+  codexModelSessionStarted = false;
+  codexModelSessionAwaitingClient = false;
+  codexModelSessionRequest = null;
+  codexCapabilities.pause();
 }
 
-function startCodexModelRefresh() {
-  if (codexModelRefreshTimer) return;
-  codexModelRefreshTimer = setInterval(() => {
-    if (!githubToken || !codexEnabled) return;
-    refreshCodexModelCatalog({ force: true }).catch(error =>
-      dbg("[Codex] periodic model refresh failed:", error.message));
-  }, CODEX_MODEL_REFRESH_MS);
-  if (typeof codexModelRefreshTimer.unref === "function") codexModelRefreshTimer.unref();
+function startCodexClientWatch() {
+  // Polling here inspects local process IDs only. Remote discovery and real
+  // inference checks are triggered by a new client process, never a clock.
+  void codexClientWatcher.start();
 }
 
 async function writeCodexConfig() {
+  const account = githubToken;
   fs.mkdirSync(CODEX_DIR, { recursive: true });
 
   const authExists = fs.existsSync(CODEX_AUTH);
@@ -577,9 +623,30 @@ async function writeCodexConfig() {
 
   let modelCatalogPath = "";
   try {
-    modelCatalogPath = (await refreshCodexModelCatalog({ force: true })).catalogPath;
+    codexCapabilities.setAccount(githubToken);
+    let prepared = publishCodexModelCatalog();
+    if (!prepared.catalog.models.length) {
+      // First install / account switch: prepare an actual verified directory
+      // before injecting its path. The watcher adopts this same startup round.
+      await ensureCodexModelSession();
+      await codexCapabilities.idle();
+      prepared = publishCodexModelCatalog();
+    }
+    modelCatalogPath = prepared.catalogPath;
   } catch (error) {
     dbg("[Bridge] model catalog write failed:", error.message);
+  }
+
+  if (githubToken !== account || !codexEnabled) return;
+  // First-time validation can take a while; preserve any user edits made while
+  // it was running instead of injecting into the pre-validation file contents.
+  if (fs.existsSync(CODEX_CONFIG)) {
+    src = fs.readFileSync(CODEX_CONFIG, "utf8");
+    if (!isKobashiManagedConfig(src)) writeTextAtomic(backupPath, src);
+  }
+  if (fs.existsSync(CODEX_AUTH)) {
+    const currentAuth = fs.readFileSync(CODEX_AUTH, "utf8");
+    if (!isKobashiManagedAuth(currentAuth)) writeTextAtomic(CODEX_AUTH + ".bak", currentAuth, 0o600);
   }
 
   writeTextAtomic(
@@ -608,7 +675,7 @@ async function writeCodexConfig() {
     try { execSync(`launchctl setenv NO_PROXY "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
     try { execSync(`launchctl setenv no_proxy "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
   }
-  startCodexModelRefresh();
+  startCodexClientWatch();
   log("[Bridge] Codex config injected");
 }
 
@@ -631,7 +698,7 @@ function stripInjectedCodexConfig(backupSource = "", restoreEmptyFile = false) {
 }
 
 function restoreCodexConfig() {
-  stopCodexModelRefresh();
+  stopCodexClientWatch();
   const authBackupPath = CODEX_AUTH + ".bak";
   const authBackupExists = fs.existsSync(authBackupPath);
   let authRestored = false;
@@ -907,10 +974,13 @@ async function validateCandidateToken(token) {
 
 async function ensureCopilotToken() {
   if (copilotToken && Date.now() / 1000 < copilotTokenExpiry - 120) return copilotToken;
+  const account = githubToken;
+  if (!account) throw new Error("GitHub account is not connected");
   const res = await httpsRequest({
     hostname: "api.github.com", path: "/copilot_internal/v2/token", method: "GET",
-    headers: { Authorization: `token ${githubToken}`, "User-Agent": "GitHubCopilotChat/0.38.2", "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
+    headers: { Authorization: `token ${account}`, "User-Agent": "GitHubCopilotChat/0.38.2", "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2" },
   });
+  if (account !== githubToken) throw new Error("GitHub account changed during token refresh");
   if (res.status === 401 || res.status === 403) {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
@@ -988,41 +1058,57 @@ async function getCopilotUsage() {
 let copilotModelsCache = null;
 let copilotModelsCacheAt = 0;
 let copilotModelsRequest = null;
-const COPILOT_MODELS_TTL = 5 * 60 * 1000;
+const COPILOT_MODELS_TTL = 60 * 1000;
+let copilotModelsGeneration = 0;
 
 function clearCopilotModelCache() {
   copilotModelsCache = null;
   copilotModelsCacheAt = 0;
   copilotModelsRequest = null;
-  lastCodexModelCatalogSignature = null;
+  copilotModelsGeneration++;
+  stopCodexClientWatch();
+  codexCapabilities.setAccount(null);
 }
 
 async function requestCopilotModels(token) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const request = await upstreamHttpsRequest({
+  return new Promise((resolve, reject) => {
+    let settled = false, request, response;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) { request?.destroy(); response?.destroy(); reject(error); }
+      else resolve(result);
+    };
+    const timer = setTimeout(() => finish(new Error("Copilot model discovery timed out")), 20_000);
+    (async () => {
+      request = await upstreamHttpsRequest({
         hostname: COPILOT_API, path: "/models", method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
           "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
           "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
-          "X-GitHub-Api-Version": "2025-10-01",
-          Accept: "application/json",
+          "X-GitHub-Api-Version": "2025-10-01", Accept: "application/json",
         },
-      }, res => {
+      }, incoming => {
+        response = incoming;
+        if (settled) { incoming.destroy(); return; }
         const chunks = [];
-        res.on("data", chunk => chunks.push(chunk));
-        res.on("end", () => resolve({
-          status: res.statusCode,
-          raw: Buffer.concat(chunks).toString(),
-        }));
-        res.on("error", reject);
+        let size = 0;
+        incoming.on("data", chunk => {
+          size += chunk.length;
+          if (size > 4 * 1024 * 1024) { finish(new Error("Copilot model catalog exceeds limit")); return; }
+          chunks.push(chunk);
+        });
+        incoming.on("end", () => finish(null, { status: incoming.statusCode,
+          raw: Buffer.concat(chunks).toString("utf8") }));
+        incoming.on("error", error => finish(error));
+        incoming.on("aborted", () => finish(new Error("Copilot model discovery interrupted")));
       });
-      request.on("error", reject);
+      request.on("error", error => finish(error));
+      if (settled) { request.destroy(); return; }
       request.end();
-    } catch (error) {
-      reject(error);
-    }
+    })().catch(error => finish(error));
   });
 }
 
@@ -1033,9 +1119,11 @@ async function getCopilotModelsRaw(options = {}) {
   if (copilotModelsRequest) return copilotModelsRequest;
 
   const previous = copilotModelsCache;
-  copilotModelsRequest = (async () => {
+  const generation = copilotModelsGeneration;
+  const request = (async () => {
     let token = await ensureCopilotToken();
     let response = await requestCopilotModels(token);
+    if (generation !== copilotModelsGeneration) throw new Error("Copilot account changed during discovery");
     if (response.status === 401 ||
         (response.status === 400 && isAuthFailureBody(response.raw))) {
       copilotToken = null;
@@ -1056,21 +1144,23 @@ async function getCopilotModelsRaw(options = {}) {
     if (!data || !Array.isArray(data.data)) {
       throw new Error("Copilot model list did not contain a data array");
     }
+    if (generation !== copilotModelsGeneration) throw new Error("Copilot account changed during discovery");
     copilotModelsCache = data.data;
     copilotModelsCacheAt = Date.now();
     return copilotModelsCache;
   })();
+  copilotModelsRequest = request;
 
   try {
-    return await copilotModelsRequest;
+    return await request;
   } catch (error) {
-    if (previous) {
+    if (previous && generation === copilotModelsGeneration) {
       dbg("[Models] live refresh failed; using stale cache:", error.message);
       return previous;
     }
     throw error;
   } finally {
-    copilotModelsRequest = null;
+    if (copilotModelsRequest === request) copilotModelsRequest = null;
   }
 }
 
@@ -1172,23 +1262,17 @@ const proxy = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: "Codex bridge not active" }));
     return;
   }
-  // GET /v1/models — return the account-scoped list from Copilot's live model
-  // endpoint. Keep the custom Codex catalog in sync at the same time so both
-  // CLI and desktop pickers learn about newly rolled-out models.
+  // The API and native picker share the verified startup snapshot. Repeated
+  // list reads do not trigger additional discovery or paid validation probes.
   if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
-    let models = [];
     try {
-      const allModels = await getCopilotModelsRaw();
-      models = selectCopilotOpenAIModels(allModels);
-      await refreshCodexModelCatalog({ copilotModels: allModels });
+      await ensureCodexModelSession();
     } catch (error) {
-      dbg("[Codex] GET /v1/models live lookup failed:", error.message);
-      models = (readCodexModelCatalog()?.models || []).map(model => ({
-        id: model.slug,
-        name: model.display_name,
-        vendor: "OpenAI",
-      }));
+      dbg("[Codex] GET /v1/models refresh failed:", error.message);
     }
+    // This is the same verified registry used to write the native picker.
+    // Disk files from older versions/accounts never bypass online validation.
+    const models = codexCapabilities.models();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       object: "list",
@@ -1204,82 +1288,35 @@ const proxy = http.createServer(async (req, res) => {
   const bodyChunks = [];
   for await (const chunk of req) bodyChunks.push(chunk);
   let bodyBuf = Buffer.concat(bodyChunks);
-  // Map legacy / canonical model ids Codex sends to ones Copilot's Responses API accepts,
-  // and clamp reasoning.effort to what the CHOSEN model actually supports.
-  // Codex defaults to "gpt-5-codex" / "gpt-5" which Copilot rejects — translate to a
-  // versioned sibling. Body is mutated only when a field actually needs rewriting.
+  let currentRequest = null;
+  let capabilityToken = null;
+  // Keep wire compatibility separate from the picker: a supported model may
+  // still reject a newer client's optional parameter (e.g. GPT-5 mini context).
   if (req.method === "POST" && bodyBuf.length && req.url.includes("/responses")) {
     try {
-      const j = JSON.parse(bodyBuf.toString());
-      let dirty = false;
-      if (j.model) {
-        const codexModelMap = {
-          "gpt-5": "gpt-5.5",
-          // gpt-5.2-codex was RETIRED upstream — mapping Codex's canonical default
-          // there made every request 400. 5.3-codex is the live codex-tuned model.
-          "gpt-5-codex": "gpt-5.3-codex",
-          "gpt-5.2-codex": "gpt-5.3-codex",
-          "gpt-5.2": "gpt-5.5",
-          "gpt-4.1": "gpt-5.4",     // 4.1 family not in Responses API; use closest 5.x
-          "gpt-4o": "gpt-5.4",
-          "gpt-4o-mini": "gpt-5.4-mini",
-          "o3": "gpt-5.5",
-          "o4-mini": "gpt-5.4-mini",
-        };
-        const original = j.model;
-        if (codexModelMap[j.model]) {
-          j.model = codexModelMap[j.model];
-          dirty = true;
-          log(`[Codex] model ${original} → ${j.model}`);
+      const body = JSON.parse(bodyBuf.toString());
+      try {
+        await ensureCodexModelSession();
+      } catch (error) {
+        dbg("[Codex] startup capability lookup failed:", error.message);
+      }
+      const copilotModels = codexCapabilities.rawModels();
+      capabilityToken = codexCapabilities.token(body.model);
+      const normalized = normalizeCodexRequest(body, {
+        copilotModels, constraints: codexCapabilities.constraints(body.model),
+      });
+      currentRequest = normalized.body;
+      if (normalized.body !== body) {
+        bodyBuf = Buffer.from(JSON.stringify(normalized.body));
+        for (const change of normalized.changes) {
+          log(`[Codex] ${change.field} ${JSON.stringify(change.from)} → ${JSON.stringify(change.to)} (${change.reason})`);
         }
       }
-      // Reasoning effort clamp. The supported values come from the same live
-      // Copilot model record used by the picker, so a newly rolled-out model
-      // does not need another hard-coded regex here. An unsupported value is a
-      // hard 400 on every turn; coerce it to the nearest advertised tier.
-      if (j.reasoning && typeof j.reasoning.effort === "string") {
-        const m = String(j.model || "");
-        let tiers = [];
-        try {
-          const models = await getCopilotModelsRaw();
-          const liveModel = models.find(model => model && model.id === m);
-          if (liveModel) tiers = getCopilotReasoningEfforts(liveModel);
-        } catch (error) {
-          dbg("[Codex] reasoning capability lookup failed:", error.message);
-        }
-        // Offline fallback for a request that arrived before any live catalog
-        // was cached. The next successful model refresh replaces this guess.
-        if (!tiers.length) {
-          tiers = /^gpt-(?:5\.6|[6-9])/.test(m)
-            ? ["low", "medium", "high", "xhigh", "max"]
-            : /^(gpt-5-mini|mai-code)/.test(m)
-              ? ["minimal", "low", "medium", "high"]
-              : /^grok-/.test(m)
-                ? ["minimal", "low", "medium", "high", "xhigh"]
-                : ["none", "low", "medium", "high", "xhigh"];
-        }
-        const want = j.reasoning.effort.toLowerCase();
-        if (!tiers.includes(want)) {
-          // Rank unknown/aspirational names so they land on the closest real tier
-          // rather than failing: ultra/max-like → highest available, etc.
-          const rank = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, extra_high: 5, ultracode: 5, max: 6, ultra: 6, maximum: 6, highest: 6 };
-          const r = rank[want] !== undefined ? rank[want] : 4;
-          // Round DOWN to the nearest supported tier, but never silently land on
-          // "none" for someone who explicitly asked for SOME thinking — that would
-          // switch reasoning off entirely. Only a literal "none" means none.
-          let pick = null;
-          for (const t of tiers) if (rank[t] <= r) pick = t;
-          if (r > 0 && (pick === null || pick === "none")) {
-            pick = tiers.find(t => rank[t] > 0) || tiers[tiers.length - 1];
-          }
-          if (pick === null) pick = tiers[0];
-          log(`[Codex] reasoning.effort "${j.reasoning.effort}" not valid for ${m} → "${pick}"`);
-          j.reasoning = { ...j.reasoning, effort: pick };
-          dirty = true;
-        }
-      }
-      if (dirty) bodyBuf = Buffer.from(JSON.stringify(j));
-    } catch {}
+    } catch (error) {
+      // Invalid JSON remains an upstream validation error, without retrying it
+      // as an authentication failure or changing the original request bytes.
+      dbg("[Codex] request normalization skipped:", error.message);
+    }
   }
   try {
     // Same 30-minute token expiry problem as the Claude path: a stale Copilot
@@ -1287,7 +1324,7 @@ const proxy = http.createServer(async (req, res) => {
     // that straight through made Codex CLI treat it as an auth failure and
     // reconnect over and over. Replay once with a fresh token instead — nothing
     // has been written to the client yet at that point.
-    const sendCodex = async (attempt) => {
+    const sendCodex = async (attempt, compatibilityRetries = 0) => {
     const token = await ensureCopilotToken();
     const p = req.url.startsWith("/v1") ? req.url : `/v1${req.url}`;
     const headers = {
@@ -1312,29 +1349,49 @@ const proxy = http.createServer(async (req, res) => {
         upstreamRes.resume(); // drain; we replay instead of surfacing this
         copilotToken = null; copilotTokenExpiry = 0;
         log(`[Codex] token rejected (401) — refreshing and retrying once`);
-        sendCodex(1).catch(e => {
+        sendCodex(1, compatibilityRetries).catch(e => {
           try { res.writeHead(502, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: e.message })); } catch {}
         });
         return;
       }
-      if (upstreamRes.statusCode === 400 && attempt === 0) {
-        // Buffer the (small) error body so we can tell auth-400 from client-400.
+      if ([400, 403, 404, 410].includes(upstreamRes.statusCode)) {
+        // Buffer the error before writing client headers. Authentication and
+        // safe optional-parameter compatibility errors have separate bounds;
+        // all other request errors are surfaced unchanged.
         const eb = [];
         upstreamRes.on("data", d => eb.push(d));
         upstreamRes.on("end", () => {
           const body = Buffer.concat(eb).toString();
-          if (isAuthFailureBody(body)) {
+          if (upstreamRes.statusCode === 400 && isAuthFailureBody(body) && attempt === 0) {
             copilotToken = null; copilotTokenExpiry = 0;
             log(`[Codex] token rejected (400) — refreshing and retrying once`);
-            sendCodex(1).catch(e => {
+            sendCodex(1, compatibilityRetries).catch(e => {
               try { res.writeHead(502, { "Content-Type": "application/json" });
                 res.end(JSON.stringify({ error: e.message })); } catch {}
             });
           } else {
+            codexCapabilities.observeFailure(currentRequest?.model, capabilityToken, upstreamRes.statusCode, body);
+            if (upstreamRes.statusCode === 400 && compatibilityRetries < 3 && currentRequest) {
+              try {
+                const request = currentRequest;
+                const repaired = retryCodexRequest(request, body);
+                if (repaired.body !== request) {
+                  codexCapabilities.learn(request.model, capabilityToken, repaired.constraints);
+                  currentRequest = repaired.body;
+                  bodyBuf = Buffer.from(JSON.stringify(currentRequest));
+                  log(`[Codex] ${request.model} learned ${repaired.changes.map(change => change.field).join(", ")} — retrying`);
+                  sendCodex(attempt, compatibilityRetries + 1).catch(e => {
+                    try { res.writeHead(502, { "Content-Type": "application/json" });
+                      res.end(JSON.stringify({ error: e.message })); } catch {}
+                  });
+                  return;
+                }
+              } catch {}
+            }
             // Genuine client error — surface it verbatim, immediately.
             try {
-              res.writeHead(400, { "Content-Type": upstreamRes.headers["content-type"] || "application/json" });
+              res.writeHead(upstreamRes.statusCode, { "Content-Type": upstreamRes.headers["content-type"] || "application/json" });
               res.end(body);
             } catch {}
           }
@@ -1356,7 +1413,14 @@ const proxy = http.createServer(async (req, res) => {
       if (normalizeResponsesSse) delete responseHeaders["content-length"];
       res.writeHead(upstreamRes.statusCode, responseHeaders);
       if (normalizeResponsesSse) {
-        const normalizer = createResponsesSseNormalizer();
+        const normalizer = createResponsesSseNormalizer({ onEvent: event => {
+          if (!currentRequest || (!["error", "response.failed"].includes(event.type) &&
+              !event.error && !event.response?.error)) return;
+          const error = { error: event.error || event.response?.error || event };
+          const repair = retryCodexRequest(currentRequest, error);
+          if (repair.changes.length) codexCapabilities.learn(currentRequest.model, capabilityToken, repair.constraints);
+          codexCapabilities.observeFailure(currentRequest.model, capabilityToken, 400, error);
+        } });
         normalizer.on("error", (e) => {
           dbg(`[Codex] SSE id normalizer error: ${e.message}`);
           try { res.end(); } catch {}
@@ -2096,7 +2160,7 @@ const ui = http.createServer(async (req, res) => {
     let usage = null;
     try { usage = await getCopilotUsage(); } catch { usage = null; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, version: APP_VERSION, releaseDate: APP_DATE })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, codexModels: codexCapabilities.status(), version: APP_VERSION, releaseDate: APP_DATE })); return;
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }

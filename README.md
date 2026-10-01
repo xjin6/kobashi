@@ -14,8 +14,8 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.1.4)](https://github.com/xjin6/kobashi/releases/download/v2.1.4/Kobashi.zip)** | ~36 MB |
-| **Windows** | **[kobashi.exe (v2.1.3)](https://github.com/xjin6/kobashi/releases/download/v2.1.3/kobashi.exe)** | ~55 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.zip)** | ~36 MB |
+| **Windows** | **[Kobashi.exe (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.exe)** | ~55 MB |
 
 No installation required. No dependencies. Just download and double-click.
 
@@ -61,15 +61,84 @@ Windows and CLI launch behavior is unchanged.
 - One-click GitHub OAuth device flow authentication
 - Automatic Copilot token acquisition and refresh
 - **Claude Bridge** — exposes an Anthropic-compatible API; remaps Claude Code's model IDs (e.g. `claude-opus-4-7`, `claude-sonnet-4-6[1m]`) to whatever Copilot actually supports; translates streaming + tool-use between Anthropic and OpenAI formats
-- **Codex Bridge** — transparent passthrough proxy with an account-aware live OpenAI model picker, automatic five-minute refreshes, and safe 1M context defaults for models that support it
+- **Codex Bridge** — transparent passthrough proxy with an account-aware live OpenAI model picker, online capability checks on Codex startup, and safe 1M context defaults for models that support it
 - Auto-injects configs (`~/.claude/settings.json`, `~/.codex/auth.json` + `config.toml`) and restores them on disconnect
 - Auto-detects system HTTP(S) proxy — routes only Bridge's upstream traffic through it, leaving other apps untouched
 - Light/dark mode with system preference detection
 - Single portable executable, no installation needed
 
+### Codex model compatibility
+
+Kobashi refreshes the account's Copilot model directory and performs one online
+validation round when a Codex client starts. Fully quit Codex and reopen it to
+force a fresh directory read and validation, even when the previous capability
+cache is unchanged. Closing a window alone may leave the client process running.
+Repeated picker reads and normal conversation turns reuse that startup snapshot;
+there is no timed remote discovery, inference recheck, or background retry loop.
+
+macOS and Windows use the same discovery, validation, caching, and request-adaptation
+code. A read-only local process watcher checks client process IDs and creation
+times every five seconds (`ps` on macOS, hidden PowerShell/CIM on Windows); these
+checks do not contact a model or consume tokens. GUI helpers and child servers are
+counted with their parent, and diagnostic queries such as `codex debug models`
+never count as a startup. The first bridge request can bootstrap discovery before
+the watcher sees the client, without causing a second validation round.
+
+On first setup (or an account switch with no verified cache), Kobashi prepares the
+verified directory before injecting the Codex configuration. Open Codex after
+this preparation completes. On subsequent launches, the previous verified
+snapshot remains available while the new startup check runs; a network timeout
+does not revoke an earlier successful check.
+
+The native Codex app server reads `model_catalog_json` at process startup. It does
+not reload its picker when that file or `config.toml` is rewritten. Therefore,
+new models, removed models, and new effort options found by a startup round are
+saved for the **next full Codex launch**; `/v1/models` reflects them as checks
+finish. If Codex was already open during first setup, fully quit and reopen it
+after preparation. Kobashi never restarts the client or interrupts a live turn.
+
+New models are checked with a small, real streaming tool-call request
+before being published to the directory or `/v1/models`. HTTP 200 alone is
+insufficient: the check must finish successfully with a valid tool call. There is
+no model-name allowlist, compatibility exception list, or silent model substitution.
+
+The same refresh reads the installed Codex client's native catalog. Ultra is a
+client delegation mode: its exact native model metadata and underlying API effort
+must both be supported. A newly added native model or Ultra mode is discovered and
+verified automatically. A Copilot model absent from the native catalog can still
+appear with its advertised API efforts; Kobashi cannot invent a client mode that
+the installed Codex does not declare.
+
+Parameter compatibility is learned from explicit upstream validation responses.
+Supported alternatives for reasoning context, effort, summary, and text verbosity
+are applied without changing the selected model, conversation, or tools. Multiple
+optional-field changes can be negotiated with at most three compatibility retries,
+separate from the existing single authentication retry. Ambiguous errors and
+changes to user data, tools, model IDs, or token budgets are never guessed.
+
+Verified capabilities and learned parameter rules are cached privately in
+`~/.kobashi/codex-model-capabilities.json`, scoped to the account and a fingerprint
+of upstream and native capabilities. A client restart explicitly revalidates all
+discovered models and can remove old learned limitations when a provider adds
+support. The running session keeps its verified list without a time-based expiry.
+Real model-access failures still remove a model from the published directory and
+`/v1/models` immediately (the already-open native picker updates on its next launch).
+Real request validation errors still teach compatible parameters.
+
+Each startup round uses at most two concurrent checks, a 45-second timeout per
+request, and a 1,024-token output limit. These are real API requests and consume
+some usage, including bounded parameter-negotiation retries. A transient failure
+does not schedule further checks in the background; restart Codex to retry.
+Exiting the clients stops queued validation work. Account changes and newer
+startups invalidate late results from older rounds.
+
 ## Development checks
 
-Run `npm test` for the Node.js regression tests. On macOS with Xcode Command Line
+Run `npm test` for the Node.js regression tests. To check native picker startup
+and caching against an installed CLI without inference, set `KOBASHI_TEST_CODEX`
+to its absolute executable path and run `node --test test/codex-native-picker.test.js`.
+This uses a temporary Codex home and a loopback-only provider; it never touches
+the running client. On macOS with Xcode Command Line
 Tools and a graphical login session, run `npm run test:mac` for the native window
 lifecycle checks. These compile the real app delegate with an isolated test entry
 point and use a disposable child process instead of the bridge; they do not use

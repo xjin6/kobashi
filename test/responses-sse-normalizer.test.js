@@ -95,3 +95,16 @@ test("passes malformed and non-JSON SSE data through byte-for-byte", async () =>
   const source = "event: custom\ndata: not-json\n\n: ping\n\ndata: [DONE]\n\n";
   assert.equal(await normalize([source]), source);
 });
+
+test("observes named SSE errors without changing the forwarded payload", async () => {
+  const source = 'event: error\ndata: {"error":{"code":"model_not_found"}}\n\n';
+  const observed = [];
+  const stream = createResponsesSseNormalizer({ onEvent: event => observed.push(event) });
+  let output = "";
+  stream.on("data", chunk => { output += chunk; });
+  stream.end(source);
+  await once(stream, "end");
+  assert.equal(output, source);
+  assert.equal(observed[0].type, "error");
+  assert.equal(observed[0].error.code, "model_not_found");
+});

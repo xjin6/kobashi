@@ -2,7 +2,7 @@
 set -e
 cd "$(dirname "$0")/.."   # always run from repo root
 
-BINARY="kobashi"
+BINARY="Kobashi"
 # Single source of truth: package.json. Hard-coding it here as well is what let
 # v1.9.2 ship displaying "v1.9.1" — two copies, only one of them bumped.
 VERSION="$(node -p "require('./package.json').version")"

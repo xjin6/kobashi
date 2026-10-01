@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const test = require("node:test");
 const {
+  EMPTY_CATALOG_MODEL_ID,
   buildKobashiModelCatalog,
   createKobashiModelCatalog,
   ensureKobashiModelCatalog,
@@ -42,6 +43,7 @@ function copilotModel(id, overrides = {}) {
     vendor: "OpenAI",
     version: id,
     model_picker_enabled: true,
+    supported_endpoints: ["/responses", "ws:/responses"],
     policy: { state: "enabled" },
     capabilities: {
       type: "chat",
@@ -110,6 +112,12 @@ test("selects the live account-enabled OpenAI chat models without a fixed allowl
       copilotModel("gpt-7-disabled", { policy: { state: "disabled" } }),
       copilotModel("gpt-7-hidden", { model_picker_enabled: false }),
       copilotModel("gpt-7-embedding", { capabilities: { type: "embeddings" } }),
+      copilotModel("gpt-7-chat-only", { supported_endpoints: ["/chat/completions"] }),
+      copilotModel("gpt-7-ws-only", { supported_endpoints: ["ws:/responses"] }),
+      copilotModel("gpt-7-no-endpoint", { supported_endpoints: undefined }),
+      copilotModel("gpt-7-no-stream", { capabilities: { supports: { streaming: false } } }),
+      copilotModel("gpt-7-no-tools", { capabilities: { supports: { tool_calls: false } } }),
+      copilotModel("gpt-7-unknown-tools", { capabilities: { supports: { tool_calls: undefined } } }),
       copilotModel("gemini-4-pro", { vendor: "Google" }),
       copilotModel("gpt-6-astra"),
     ],
@@ -126,7 +134,7 @@ test("normalizes live reasoning efforts to values Codex understands", () => {
   const model = copilotModel("gpt-7", {
     capabilities: {
       supports: {
-        reasoning_effort: ["HIGH", "low", "future", "max", "low", "none"],
+        reasoning_effort: ["HIGH", "low", "future", "max", "low", "none", "ultra"],
       },
     },
   });
@@ -232,7 +240,7 @@ test("a future live model is synthesized from the nearest bundle metadata", () =
   assertCodexMinimumRecord(orbit);
 });
 
-test("missing live data falls back to visible bundled OpenAI models", () => {
+test("missing live data never advertises unverified bundled models", () => {
   const result = buildKobashiModelCatalog({
     models: [
       modelRecord("gpt-5.6-sol", { visibility: "list", priority: 2 }),
@@ -246,15 +254,78 @@ test("missing live data falls back to visible bundled OpenAI models", () => {
     ],
   });
 
-  assert.deepEqual(result.models.map(model => model.slug), ["gpt-6-astra", "gpt-5.6-sol"]);
-  result.models.forEach(assertCodexMinimumRecord);
+  assert.deepEqual(result.models, []);
 });
 
-test("invalid or unavailable inputs produce a valid emergency fallback", () => {
+test("empty, disabled or incompatible live catalogs remain empty", () => {
+  const bundled = { models: [modelRecord("gpt-6-astra", { visibility: "list" })] };
+  for (const live of [
+    { data: [] },
+    { data: [copilotModel("gpt-6-astra", { policy: { state: "disabled" } })] },
+    { data: [copilotModel("gpt-6-astra", { supported_endpoints: ["/chat/completions"] })] },
+    {},
+  ]) {
+    assert.deepEqual(buildKobashiModelCatalog(bundled, live).models, []);
+  }
+});
+
+test("invalid or unavailable inputs do not invent an emergency model", () => {
   for (const input of [undefined, null, {}, { models: "invalid" }]) {
     const result = buildKobashiModelCatalog(input);
-    assert.deepEqual(result.models.map(model => model.slug), ["gpt-5"]);
-    result.models.forEach(assertCodexMinimumRecord);
+    assert.deepEqual(result.models, []);
+  }
+});
+
+test("live efforts include newly supported values absent from exact native metadata", () => {
+  const bundled = { models: [modelRecord("gpt-6.1-sol")] };
+  const live = { data: [copilotModel("gpt-6.1-sol", {
+    capabilities: { supports: { reasoning_effort: ["none", "low", "medium", "high", "xhigh", "max"] } },
+  })] };
+  assert.deepEqual(buildKobashiModelCatalog(bundled, live).models[0].supported_reasoning_levels
+    .map(level => level.effort), ["none", "low", "medium", "high", "xhigh", "max"]);
+});
+
+test("Ultra is available only when the exact native model's mapped effort is supported", () => {
+  for (const [nativeOverride, apiEfforts, expectedUltra] of [
+    ["xhigh", ["low", "xhigh"], true],
+    ["xhigh", ["low", "max"], false],
+    [undefined, ["low", "max"], true],
+    [undefined, ["low", "xhigh"], false],
+  ]) {
+    const bundled = { models: [modelRecord("gpt-6.1-sol", {
+      supported_reasoning_levels: [{ effort: "low" }, { effort: "ultra" }],
+      ...(nativeOverride ? { multi_agent_reasoning_effort: nativeOverride } : {}),
+    })] };
+    const live = { data: [copilotModel("gpt-6.1-sol", {
+      capabilities: { supports: { reasoning_effort: apiEfforts } },
+    })] };
+    const record = buildKobashiModelCatalog(bundled, live).models[0];
+    assert.deepEqual(record.supported_reasoning_levels.map(level => level.effort),
+      [...apiEfforts, ...(expectedUltra ? ["ultra"] : [])]);
+    assert.equal(record.multi_agent_reasoning_effort, nativeOverride);
+  }
+});
+
+test("Ultra is never inherited from a different model or advertised as a raw API effort", () => {
+  const bundled = { models: [modelRecord("gpt-6-sol", {
+    supported_reasoning_levels: [{ effort: "max" }, { effort: "ultra" }],
+  })] };
+  const live = { data: [copilotModel("gpt-7-sol", {
+    capabilities: { supports: { reasoning_effort: ["max", "ultra"] } },
+  })] };
+  assert.deepEqual(buildKobashiModelCatalog(bundled, live).models[0].supported_reasoning_levels
+    .map(level => level.effort), ["max"]);
+});
+
+test("missing or unrecognized API efforts never fall back to guessed native levels", () => {
+  const bundled = { models: [modelRecord("gpt-6-sol")] };
+  for (const apiEfforts of [undefined, [], ["future"]]) {
+    const live = { data: [copilotModel("gpt-6-sol", {
+      capabilities: { supports: { reasoning_effort: apiEfforts } },
+    })] };
+    const record = buildKobashiModelCatalog(bundled, live).models[0];
+    assert.deepEqual(record.supported_reasoning_levels, []);
+    assert.equal(record.default_reasoning_level, null);
   }
 });
 
@@ -263,6 +334,7 @@ test("bundled catalog loader isolates Codex from the user's real config", () => 
     let scratchDir;
     const result = loadBundledCodexModelCatalog({
       tempRoot,
+      codexCommand: "codex",
       env: { CODEX_HOME: "must-not-be-used" },
       execFileSyncImpl(command, args, options) {
         assert.equal(command, "codex");
@@ -281,32 +353,160 @@ test("bundled catalog loader isolates Codex from the user's real config", () => 
   });
 });
 
-test("bundled catalog loader discovers the ChatGPT app Codex binary", () => {
+test("bundled catalog loader prefers the current ChatGPT app binary over PATH", () => {
   withTempDir(tempRoot => {
     const commands = [];
-    const appCommand = "/Applications/ChatGPT.app/Contents/Resources/codex";
+    const appCommand = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
     const fsImpl = {
       ...fs,
       existsSync(value) {
-        return value === appCommand || fs.existsSync(value);
+        return value === appCommand;
       },
     };
     const result = loadBundledCodexModelCatalog({
       tempRoot,
+      platform: "darwin",
       fsImpl,
       execFileSyncImpl(command) {
         commands.push(command);
-        if (command === "codex") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+        assert.equal(command, appCommand);
         return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
       },
     });
 
-    assert.deepEqual(commands, ["codex", appCommand]);
+    assert.deepEqual(commands, [appCommand]);
     assert.equal(result.models[0].slug, "gpt-6-astra");
   });
 });
 
-test("catalog creation falls back safely when Codex cannot be queried", () => {
+test("macOS loader keeps legacy and per-user desktop installations discoverable", () => {
+  for (const appCommand of [
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+    "/test-home/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+    "/test-home/Applications/Codex.app/Contents/Resources/codex",
+  ]) {
+    withTempDir(tempRoot => {
+      const commands = [];
+      const result = loadBundledCodexModelCatalog({
+        tempRoot,
+        platform: "darwin",
+        env: { HOME: "/test-home" },
+        fsImpl: { ...fs, existsSync: value => value === appCommand },
+        execFileSyncImpl(command) {
+          commands.push(command);
+          return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
+        },
+      });
+      assert.deepEqual(commands, [appCommand]);
+      assert.equal(result.models[0].slug, "gpt-6-astra");
+    });
+  }
+});
+
+test("macOS loader tries PATH after a broken desktop binary", () => {
+  withTempDir(tempRoot => {
+    const appCommand = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+    const commands = [];
+    const result = loadBundledCodexModelCatalog({
+      tempRoot,
+      platform: "darwin",
+      fsImpl: { ...fs, existsSync: value => value === appCommand },
+      execFileSyncImpl(command) {
+        commands.push(command);
+        if (command === appCommand) throw new Error("broken desktop binary");
+        return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
+      },
+    });
+    assert.deepEqual(commands, [appCommand, "codex"]);
+    assert.equal(result.models[0].slug, "gpt-6-astra");
+  });
+});
+
+test("Windows desktop catalog is discovered without Codex on Explorer's PATH", () => {
+  withTempDir(tempRoot => {
+    const binRoot = path.join(tempRoot, "OpenAI", "Codex", "bin");
+    const appCommand = path.join(binRoot, "current-version", "codex.exe");
+    fs.mkdirSync(path.dirname(appCommand), { recursive: true });
+    fs.writeFileSync(appCommand, "");
+    // Other extracted tool directories must not be mistaken for Codex.
+    fs.mkdirSync(path.join(binRoot, "rg-only"));
+    const commands = [];
+    const result = createKobashiModelCatalog({
+      tempRoot,
+      platform: "win32",
+      env: { LOCALAPPDATA: tempRoot },
+      copilotCatalog: { data: [copilotModel("gpt-6-astra", {
+        capabilities: { supports: { reasoning_effort: ["medium", "xhigh"] } },
+      })] },
+      execFileSyncImpl(command, args, options) {
+        commands.push(command);
+        if (command === "codex") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+        assert.equal(command, appCommand);
+        assert.deepEqual(args, ["debug", "models", "--bundled"]);
+        assert.equal(options.windowsHide, true);
+        assert.notEqual(options.env.CODEX_HOME, process.env.CODEX_HOME);
+        return JSON.stringify({ models: [modelRecord("gpt-6-astra", {
+          multi_agent_reasoning_effort: "xhigh",
+          supported_reasoning_levels: [
+            { effort: "medium", description: "Bundled medium" },
+            { effort: "ultra", description: "Bundled ultra" },
+          ],
+        })] });
+      },
+    });
+    assert.deepEqual(commands, [appCommand]);
+    assert.deepEqual(result.models[0].supported_reasoning_levels.map(level => level.effort),
+      ["medium", "xhigh", "ultra"]);
+    assert.equal(result.models[0].base_instructions, "Bundled instructions for gpt-6-astra");
+  });
+});
+
+test("Windows discovery tries newest binary first and tolerates a broken install", () => {
+  withTempDir(tempRoot => {
+    const localAppData = path.join(tempRoot, "AppData", "Local");
+    const binRoot = path.join(localAppData, "OpenAI", "Codex", "bin");
+    const commands = [];
+    for (const [version, timestamp] of [["old", 1000], ["new", 2000]]) {
+      const command = path.join(binRoot, version, "codex.exe");
+      fs.mkdirSync(path.dirname(command), { recursive: true });
+      fs.writeFileSync(command, "");
+      fs.utimesSync(command, timestamp, timestamp);
+    }
+    const result = loadBundledCodexModelCatalog({
+      tempRoot,
+      platform: "win32",
+      env: { LOCALAPPDATA: "", USERPROFILE: tempRoot },
+      execFileSyncImpl(command) {
+        commands.push(command);
+        if (command !== path.join(binRoot, "old", "codex.exe")) throw new Error("unavailable");
+        return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
+      },
+    });
+    assert.deepEqual(commands, [
+      path.join(binRoot, "new", "codex.exe"),
+      path.join(binRoot, "old", "codex.exe"),
+    ]);
+    assert.equal(result.models[0].slug, "gpt-6-astra");
+  });
+});
+
+test("Windows discovery with no desktop installation falls back safely", () => {
+  withTempDir(tempRoot => {
+    let warning;
+    const result = createKobashiModelCatalog({
+      tempRoot,
+      platform: "win32",
+      env: { LOCALAPPDATA: tempRoot },
+      execFileSyncImpl() { throw new Error("Codex unavailable"); },
+      onWarning(error) { warning = error; },
+    });
+    assert.match(warning.message, /Codex unavailable/);
+    assert.deepEqual(result.models, []);
+  });
+});
+
+test("catalog creation without Codex or live data never guesses availability", () => {
   let warning;
   const result = createKobashiModelCatalog({
     codexCommand: "missing-codex",
@@ -315,7 +515,16 @@ test("catalog creation falls back safely when Codex cannot be queried", () => {
   });
 
   assert.match(warning.message, /Codex unavailable/);
-  assert.deepEqual(result.models.map(model => model.slug), ["gpt-5"]);
+  assert.deepEqual(result.models, []);
+});
+
+test("live verified models remain available when Codex metadata cannot be queried", () => {
+  const result = createKobashiModelCatalog({
+    codexCommand: "missing-codex",
+    execFileSyncImpl() { throw new Error("Codex unavailable"); },
+    copilotCatalog: { data: [copilotModel("gpt-6.1-sol")] },
+  });
+  assert.deepEqual(result.models.map(model => model.slug), ["gpt-6.1-sol"]);
   result.models.forEach(assertCodexMinimumRecord);
 });
 
@@ -324,11 +533,36 @@ test("atomic writer replaces the target and leaves no sibling temporary file", (
     const target = path.join(tempRoot, "nested", "models.json");
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, "old contents", "utf8");
-    const catalog = buildKobashiModelCatalog({ models: [] });
+    const catalog = buildKobashiModelCatalog({ models: [] }, {
+      data: [copilotModel("gpt-6-sol")],
+    });
 
     assert.equal(writeModelCatalogAtomic(target, catalog), path.resolve(target));
     assert.deepEqual(JSON.parse(fs.readFileSync(target, "utf8")), catalog);
     assert.deepEqual(fs.readdirSync(path.dirname(target)), ["models.json"]);
+  });
+});
+
+test("empty catalog serializes only a hidden non-API sentinel and remains logically empty", () => {
+  withTempDir(homeDir => {
+    const result = ensureKobashiModelCatalog({
+      homeDir,
+      bundledCatalog: { models: [] },
+      copilotCatalog: { data: [] },
+    });
+    assert.deepEqual(result.catalog.models, []);
+    const stored = JSON.parse(fs.readFileSync(result.catalogPath, "utf8"));
+    assert.equal(stored.models.length, 1);
+    assert.equal(stored.models[0].slug, EMPTY_CATALOG_MODEL_ID);
+    assert.equal(stored.models[0].visibility, "hide");
+    assert.equal(stored.models[0].supported_in_api, false);
+    assert.deepEqual(stored.models[0].supported_reasoning_levels, []);
+    assert.equal(stored.models[0].default_reasoning_level, null);
+    const contents = fs.readFileSync(result.catalogPath, "utf8");
+    writeModelCatalogAtomic(result.catalogPath, result.catalog, {
+      fsImpl: { ...fs, writeFileSync() { throw new Error("unchanged catalog must not be written"); } },
+    });
+    assert.equal(fs.readFileSync(result.catalogPath, "utf8"), contents);
   });
 });
 
