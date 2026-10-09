@@ -300,7 +300,7 @@ function syncAnim(){
 function openLink(e){
   e.preventDefault();
   const url=document.getElementById('verify-link').href;
-  fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+  if(/^https?:\/\//i.test(url)){fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});}
 }
 function copyCode(){
   const code=document.getElementById('user-code').textContent;
