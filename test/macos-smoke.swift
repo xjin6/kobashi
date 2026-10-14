@@ -6,8 +6,14 @@ class SmokeDelegate: AppDelegate {
 
     override func startServer() {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        process.arguments = ["86400"]
+        process.executableURL = URL(fileURLWithPath: "/bin/cat")
+        let input = Pipe()
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        serverInput = input
+        process.terminationHandler = { _ in
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
         do {
             try process.run()
             serverProcess = process
@@ -16,7 +22,8 @@ class SmokeDelegate: AppDelegate {
         }
     }
 
-    override func pollAndLoad(attempt: Int = 0) {
+    override func refresh() {
+        if timer != nil { return }
         window.title = "Kobashi Lifecycle Test (no bridge)"
         window.contentView?.viewWithTag(999)?.removeFromSuperview()
         let status = NSTextField(wrappingLabelWithString: "")

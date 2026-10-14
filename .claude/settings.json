@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-kill-kobashi.sh"
+            "command": "python3 .claude/hooks/block-kill-kobashi.py",
+            "powershell": "python .claude\\hooks\\block-kill-kobashi.py"
           }
         ]
       }

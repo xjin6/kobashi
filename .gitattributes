@@ -6,8 +6,7 @@
 # that hides any real change underneath. `eol=lf` — not just `text=auto` — is
 # what keeps the checkout itself LF on Windows, so the round trip is a no-op.
 #
-# The shell scripts additionally *require* LF: bash chokes on `\r` in build
-# scripts, so CRLF there would break scripts/build-*.sh outright.
+# Shell hooks also require LF for bash.
 * text=auto eol=lf
 
 # Binary assets: never touch these. Git's auto-detection already classifies

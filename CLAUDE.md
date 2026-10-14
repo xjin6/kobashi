@@ -21,7 +21,7 @@ The same applies to Claude Desktop (`/Applications/Claude.app`) when it is the s
 
 Do the part that doesn't, then stop and hand off:
 
-> The new build is at `dist/Kobashi.rar`. To install it: quit Kobashi from its menu, extract the RAR outside the synced checkout, replace `/Applications/Kobashi.app`, and relaunch.
+> The new build is at `dist/Kobashi.app`. To install it: quit Kobashi from its menu, copy the app to `/Applications/Kobashi.app`, and relaunch.
 
 Editing files, building, and verifying logic against a copy are all fine — none of that needs the process down.
 
@@ -34,25 +34,31 @@ Both are written by kobashi at startup and restored on exit. A port showing as b
 
 ## Config injection
 
-`writeCodexConfig()` / `writeClaudeConfig()` inject; `restoreCodexConfig()` / `restoreClaudeConfig()` undo.
+`App.injectCodex()` / `App.injectClaude()` inject; `App.restoreCodex()` / `App.restoreClaude()` undo.
 
-`stripInjectedCodexConfig()` exists because the old restore path deleted the user's entire `config.toml` when no `.bak` was present, taking their notify/marketplaces/plugins/mcp_servers config with it. Keep restore surgical — remove only the injected `model_provider` line and `[model_providers.*]` section, never the file.
+Codex inference uses `experimental_bearer_token = "PROXY_MANAGED"` on its
+provider, with `requires_openai_auth = true` to keep the ChatGPT account visible
+to Codex. Never replace a normal `auth.json` or inject global OpenAI API
+credentials. Only recover an exact Kobashi-managed placeholder from its original
+backup; preserve newer logins, user API keys, and organization login policies.
+
+`restoreConfig()` exists because the old restore path deleted the user's entire `config.toml` when no `.bak` was present, taking their notify/marketplaces/plugins/mcp_servers config with it. Keep restore surgical — remove only the injected `model_provider` line and `[model_providers.*]` section, never the file.
 
 ## Session state
 
 `~/.kobashi/session.json` (holds `github_token` — chmod 600).
 
-Migrated from the legacy `~/.codex/ccb-session.json`, which was wrong twice over: kobashi's own state living in Codex's config dir, under a `ccb-` prefix left from when this was called "Copilot Bridge". `migrateLegacySession()` handles the move; don't reintroduce writes under `~/.codex/`.
+Migrated from the legacy `~/.codex/ccb-session.json`, which was wrong twice over: kobashi's own state living in Codex's config dir, under a `ccb-` prefix left from when this was called "Copilot Bridge". `App.initialize()` handles the move; don't reintroduce writes under `~/.codex/`.
 
 ## Build
 
 ```bash
-npm run build:mac     # pkg + swiftc + rar → dist/Kobashi.rar
-npm run build:win     # Git Bash on Windows → dist/Kobashi.exe
+go run ./cmd/build -target darwin   # Go + Cocoa → dist/Kobashi.app
+go run ./cmd/build -target windows  # Go + Win32 → dist/Kobashi.exe
 ```
 
-Version comes from `package.json` only. Both scripts delegate to `scripts/build-local.js`, which stages the build sources and dependencies in a unique local temporary directory outside OneDrive. Version/date stamping via `/* BUILD_STAMP */` touches only that copy. The source checkout is never stamped. The temporary workspace is removed on success or failure.
+Version comes from `package.json` only. `cmd/build` stages sources, compiler caches, and intermediate files in a unique local temporary directory outside OneDrive. Versions are embedded through Go linker flags and platform metadata without changing source files. The temporary workspace is removed on success or failure. Go 1.27+ is required for builds; macOS also requires Xcode Command Line Tools. Released apps require no third-party runtime. macOS targets 13+.
 
-Only the finished `Kobashi.rar` / `Kobashi.exe` and `SHA256SUMS.txt` go back into `dist`. Keep all compiler output, `.app` bundles, temporary files, and intermediate binaries outside the synced checkout. `KOBASHI_BUILD_TMPDIR` can select another local scratch directory; it must not be inside OneDrive or the checkout. Do not bypass the staging wrapper. macOS packaging needs `rar` on PATH or an absolute `KOBASHI_RAR_BIN` path.
+Only the finished `Kobashi.app` / `Kobashi.exe` and `SHA256SUMS.txt` go back into `dist`. Keep all compiler output, temporary files, intermediate binaries, and unfinished app bundles outside the synced checkout. `KOBASHI_BUILD_TMPDIR` can select another local scratch directory; it must not be inside OneDrive or the checkout. Do not bypass the staging wrapper. macOS builds produce the app bundle directly without an archive tool. `SHA256SUMS.txt` lists each file in the app bundle and the Windows executable.
 
-Extract installation archives outside the repository: `open -a Kobashi` matches by bundle id and can launch an unpacked build copy instead of the installed app.
+Copy the finished app to Applications before launching it: `open -a Kobashi` matches by bundle id and can launch a build copy instead of the installed app.

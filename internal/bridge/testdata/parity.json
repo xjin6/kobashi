@@ -1,0 +1,4491 @@
+[
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "[desktop]\nshow-context-window-usage = true\n",
+      18921,
+      {
+        "modelCatalogPath": "C:\\Users\\me\\.kobashi\\codex-models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"C:\\\\Users\\\\me\\\\.kobashi\\\\codex-models.json\" # Kobashi default\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_context_window = 320000\nmodel_auto_compact_token_limit = 280000\n",
+      18921,
+      {
+        "modelCatalogPath": "/tmp/kobashi-models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/kobashi-models.json\" # Kobashi default\nmodel_context_window = 320000\nmodel_auto_compact_token_limit = 280000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_catalog_json = \"D:\\\\mine.json\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      18921,
+      {
+        "modelCatalogPath": "C:\\Users\\me\\.kobashi\\codex-models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"D:\\\\mine.json\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_catalog_json = \"D:\\\\mine.json\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "model_catalog_json = \"D:\\\\mine.json\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      {
+        "modelCatalogPath": "C:\\Users\\me\\.kobashi\\codex-models.json"
+      }
+    ],
+    "expected": "model_catalog_json = \"D:\\\\mine.json\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "",
+      18921,
+      {
+        "modelCatalogPath": "C:\\Users\\me\\.kobashi\\codex-models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"C:\\\\Users\\\\me\\\\.kobashi\\\\codex-models.json\" # Kobashi default\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_catalog_json = \"C:\\\\Users\\\\me\\\\.kobashi\\\\codex-models.json\" # Kobashi default\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n",
+      "",
+      {
+        "modelCatalogPath": "C:\\Users\\me\\.kobashi\\codex-models.json"
+      }
+    ],
+    "expected": "\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_context_window = 600000 # user changed this\nmodel_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n"
+    ],
+    "expected": "model_context_window = 600000 # user changed this\n\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_context_window = 1000000 # Kobashi default\nmodel_auto_compact_token_limit = 900000 # Kobashi default\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n",
+      18921,
+      {
+        "modelCatalogPath": "/tmp/models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/models.json\" # Kobashi default\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/models.json\" # Kobashi default\nmodel_context_window = 1000000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n",
+      18921,
+      {
+        "modelCatalogPath": "/tmp/models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/models.json\" # Kobashi default\nmodel_context_window = 1000000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n",
+      18921
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n"
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"kobashi\"\n",
+      18921
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n",
+      4141
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"copilot-bridge\"\n\n[model_providers.copilot-bridge]\nbase_url = \"http://127.0.0.1:4141/v1\"\n"
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isKobashiManagedConfig",
+    "args": [
+      "model_provider = \"copilot-bridge\"\n\n[model_providers.copilot-bridge]\nbase_url = \"http://127.0.0.1:4141/v1\"\n",
+      18921
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isKobashiManagedAuth",
+    "args": [
+      "{\"OPENAI_API_KEY\":\"PROXY_MANAGED\"}"
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isKobashiManagedAuth",
+    "args": [
+      {
+        "OPENAI_API_KEY": "PROXY_MANAGED"
+      }
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isKobashiManagedAuth",
+    "args": [
+      "{\"OPENAI_API_KEY\":\"real-user-value\"}"
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isKobashiManagedAuth",
+    "args": [
+      "not json"
+    ],
+    "expected": false
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n"
+    ],
+    "expected": "\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel = \"gpt-5.6-sol\"\nmodel_context_window = 1050000\nmodel_auto_compact_token_limit = 900000\nmodel_reasoning_effort = \"ultra\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel = \"gpt-5.6-sol\"\nmodel_context_window = 1050000\nmodel_auto_compact_token_limit = 900000\nmodel_reasoning_effort = \"ultra\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_context_window = 1000000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "model_provider = \"openai\"\n\n[desktop]\nshow-context-window-usage = false\n"
+    ],
+    "expected": "model_provider = \"openai\"\nmodel_context_window = 1000000\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_context_window = 1000000\n",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_context_window = 1000000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_context_window = 1000000\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[plugins.example]\nenabled = true\n",
+      "model_provider = \"copilot-bridge\"\n\n[model_providers.copilot-bridge]\nname = \"Old bridge\"\nbase_url = \"http://127.0.0.1:4141/v1\"\n"
+    ],
+    "expected": "model_context_window = 1000000\n\n[plugins.example]\nenabled = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "developer_instructions = \"\"\"\nKeep these bytes:\n\n[model_providers.kobashi]\nmodel_provider = \"kobashi\"\n\n\"\"\"\nliteral_instructions = '''\n[model_providers.copilot-bridge]\n'''\nallowed = [\n  \"alpha\",\n  \"[model_providers.kobashi]\",\n]\n\n\n\n[desktop]\nshow-context-window-usage = true\n",
+      18921,
+      {
+        "modelCatalogPath": "/tmp/models.json"
+      }
+    ],
+    "expected": "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/models.json\" # Kobashi default\ndeveloper_instructions = \"\"\"\nKeep these bytes:\n\n[model_providers.kobashi]\nmodel_provider = \"kobashi\"\n\n\"\"\"\nliteral_instructions = '''\n[model_providers.copilot-bridge]\n'''\nallowed = [\n  \"alpha\",\n  \"[model_providers.kobashi]\",\n]\n\n\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\nmodel_catalog_json = \"/tmp/models.json\" # Kobashi default\ndeveloper_instructions = \"\"\"\nKeep these bytes:\n\n[model_providers.kobashi]\nmodel_provider = \"kobashi\"\n\n\"\"\"\nliteral_instructions = '''\n[model_providers.copilot-bridge]\n'''\nallowed = [\n  \"alpha\",\n  \"[model_providers.kobashi]\",\n]\n\n\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "developer_instructions = \"\"\"\nKeep these bytes:\n\n[model_providers.kobashi]\nmodel_provider = \"kobashi\"\n\n\"\"\"\nliteral_instructions = '''\n[model_providers.copilot-bridge]\n'''\nallowed = [\n  \"alpha\",\n  \"[model_providers.kobashi]\",\n]\n\n\n\n[desktop]\nshow-context-window-usage = true\n",
+      {
+        "modelCatalogPath": "/tmp/models.json"
+      }
+    ],
+    "expected": "developer_instructions = \"\"\"\nKeep these bytes:\n\n[model_providers.kobashi]\nmodel_provider = \"kobashi\"\n\n\"\"\"\nliteral_instructions = '''\n[model_providers.copilot-bridge]\n'''\nallowed = [\n  \"alpha\",\n  \"[model_providers.kobashi]\",\n]\n\n\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "﻿model_context_window = 1000000\r\n\r\n\r\n[desktop]\r\nshow-context-window-usage = true\r\n",
+      18921,
+      {
+        "modelCatalogPath": "C:\\Users\\me\\models.json"
+      }
+    ],
+    "expected": "﻿model_provider = \"kobashi\"\r\nmodel_catalog_json = \"C:\\\\Users\\\\me\\\\models.json\" # Kobashi default\r\nmodel_context_window = 1000000\r\n\r\n\r\n[model_providers.kobashi]\r\nname = \"Kobashi\"\r\nbase_url = \"http://127.0.0.1:18921/v1\"\r\nexperimental_bearer_token = \"PROXY_MANAGED\"\r\nrequires_openai_auth = true\r\nwire_api = \"responses\"\r\n\r\n[desktop]\r\nshow-context-window-usage = true\r\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "﻿model_provider = \"kobashi\"\r\nmodel_catalog_json = \"C:\\\\Users\\\\me\\\\models.json\" # Kobashi default\r\nmodel_context_window = 1000000\r\n\r\n\r\n[model_providers.kobashi]\r\nname = \"Kobashi\"\r\nbase_url = \"http://127.0.0.1:18921/v1\"\r\nenv_key = \"OPENAI_API_KEY\"\r\nwire_api = \"responses\"\r\n\r\n[desktop]\r\nshow-context-window-usage = true\r\n",
+      "﻿model_context_window = 1000000\r\n\r\n\r\n[desktop]\r\nshow-context-window-usage = true\r\n",
+      {
+        "modelCatalogPath": "C:\\Users\\me\\models.json"
+      }
+    ],
+    "expected": "﻿model_context_window = 1000000\r\n\r\n\r\n[desktop]\r\nshow-context-window-usage = true\r\n"
+  },
+  {
+    "operation": "injectCodexConfig",
+    "args": [
+      "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      18921
+    ],
+    "expected": "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nexperimental_bearer_token = \"PROXY_MANAGED\"\nrequires_openai_auth = true\nwire_api = \"responses\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"Kobashi\"\nbase_url = \"http://127.0.0.1:18921/v1\"\nenv_key = \"OPENAI_API_KEY\"\nwire_api = \"responses\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n"
+    ],
+    "expected": "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n",
+      "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n"
+    ],
+    "expected": "model_provider = \"openai\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://example.test/v1\"\n\n[desktop]\nshow-context-window-usage = true\n"
+  },
+  {
+    "operation": "restoreCodexConfigContents",
+    "args": [
+      "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"User provider\"\nbase_url = \"https://example.test/v1\"\n"
+    ],
+    "expected": "model_provider = \"kobashi\"\n\n[model_providers.kobashi]\nname = \"User provider\"\nbase_url = \"https://example.test/v1\"\n"
+  },
+  {
+    "operation": "selectCopilotOpenAIModels",
+    "args": [
+      {
+        "data": [
+          {
+            "id": "gpt-5-mini",
+            "name": "gpt-5-mini",
+            "vendor": "Azure OpenAI",
+            "version": "gpt-5-mini",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-6-astra",
+            "name": "GPT-6 Astra",
+            "vendor": "OpenAI",
+            "version": "gpt-6-astra",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-5.6-sol",
+            "name": "gpt-5.6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-5.6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-5.6-sol-fast",
+            "name": "GPT-5.6 Sol Fast (Internal only)",
+            "vendor": "OpenAI",
+            "version": "gpt-5.6-sol-fast",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-disabled",
+            "name": "gpt-7-disabled",
+            "vendor": "OpenAI",
+            "version": "gpt-7-disabled",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "disabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-hidden",
+            "name": "gpt-7-hidden",
+            "vendor": "OpenAI",
+            "version": "gpt-7-hidden",
+            "model_picker_enabled": false,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-embedding",
+            "name": "gpt-7-embedding",
+            "vendor": "OpenAI",
+            "version": "gpt-7-embedding",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "embeddings",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-chat-only",
+            "name": "gpt-7-chat-only",
+            "vendor": "OpenAI",
+            "version": "gpt-7-chat-only",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/chat/completions"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-ws-only",
+            "name": "gpt-7-ws-only",
+            "vendor": "OpenAI",
+            "version": "gpt-7-ws-only",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-no-endpoint",
+            "name": "gpt-7-no-endpoint",
+            "vendor": "OpenAI",
+            "version": "gpt-7-no-endpoint",
+            "model_picker_enabled": true,
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-no-stream",
+            "name": "gpt-7-no-stream",
+            "vendor": "OpenAI",
+            "version": "gpt-7-no-stream",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": false,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-no-tools",
+            "name": "gpt-7-no-tools",
+            "vendor": "OpenAI",
+            "version": "gpt-7-no-tools",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": false,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-7-unknown-tools",
+            "name": "gpt-7-unknown-tools",
+            "vendor": "OpenAI",
+            "version": "gpt-7-unknown-tools",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gemini-4-pro",
+            "name": "gemini-4-pro",
+            "vendor": "Google",
+            "version": "gemini-4-pro",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-6-astra",
+            "name": "gpt-6-astra",
+            "vendor": "OpenAI",
+            "version": "gpt-6-astra",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": [
+      {
+        "id": "gpt-6-astra",
+        "name": "GPT-6 Astra",
+        "vendor": "OpenAI",
+        "version": "gpt-6-astra",
+        "model_picker_enabled": true,
+        "supported_endpoints": [
+          "/responses",
+          "ws:/responses"
+        ],
+        "policy": {
+          "state": "enabled"
+        },
+        "capabilities": {
+          "type": "chat",
+          "limits": {
+            "max_context_window_tokens": 400000,
+            "max_prompt_tokens": 272000
+          },
+          "supports": {
+            "streaming": true,
+            "tool_calls": true,
+            "reasoning_effort": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "name": "gpt-5.6-sol",
+        "vendor": "OpenAI",
+        "version": "gpt-5.6-sol",
+        "model_picker_enabled": true,
+        "supported_endpoints": [
+          "/responses",
+          "ws:/responses"
+        ],
+        "policy": {
+          "state": "enabled"
+        },
+        "capabilities": {
+          "type": "chat",
+          "limits": {
+            "max_context_window_tokens": 400000,
+            "max_prompt_tokens": 272000
+          },
+          "supports": {
+            "streaming": true,
+            "tool_calls": true,
+            "reasoning_effort": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      },
+      {
+        "id": "gpt-5-mini",
+        "name": "gpt-5-mini",
+        "vendor": "Azure OpenAI",
+        "version": "gpt-5-mini",
+        "model_picker_enabled": true,
+        "supported_endpoints": [
+          "/responses",
+          "ws:/responses"
+        ],
+        "policy": {
+          "state": "enabled"
+        },
+        "capabilities": {
+          "type": "chat",
+          "limits": {
+            "max_context_window_tokens": 400000,
+            "max_prompt_tokens": 272000
+          },
+          "supports": {
+            "streaming": true,
+            "tool_calls": true,
+            "reasoning_effort": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "gpt-7",
+        "name": "gpt-7",
+        "vendor": "OpenAI",
+        "version": "gpt-7",
+        "model_picker_enabled": true,
+        "supported_endpoints": [
+          "/responses",
+          "ws:/responses"
+        ],
+        "policy": {
+          "state": "enabled"
+        },
+        "capabilities": {
+          "type": "chat",
+          "limits": {
+            "max_context_window_tokens": 400000,
+            "max_prompt_tokens": 272000
+          },
+          "supports": {
+            "streaming": true,
+            "tool_calls": true,
+            "reasoning_effort": [
+              "HIGH",
+              "low",
+              "future",
+              "max",
+              "low",
+              "none",
+              "ultra"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "max"
+    ]
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "GPT-6-Astra",
+            "description": "Bundled Astra description",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              },
+              {
+                "effort": "high",
+                "description": "Bundled high"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Bundled xhigh"
+              },
+              {
+                "effort": "max",
+                "description": "Bundled max"
+              },
+              {
+                "effort": "ultra",
+                "description": "Bundled ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra",
+            "kobashi_test_metadata": {
+              "family": "astra",
+              "nested": {
+                "value": 1
+              }
+            }
+          },
+          {
+            "slug": "gpt-5.6-sol",
+            "display_name": "gpt-5.6-sol",
+            "description": "gpt-5.6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-5.6-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-5.6-sol",
+            "name": "gpt-5.6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-5.6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          },
+          {
+            "id": "gpt-6-astra",
+            "name": "GPT-6 Astra",
+            "vendor": "OpenAI",
+            "version": "gpt-6-astra",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 1000000,
+                "max_prompt_tokens": 872000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6-astra",
+          "display_name": "GPT-6-Astra",
+          "description": "Bundled Astra description",
+          "default_reasoning_level": "low",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Bundled low"
+            },
+            {
+              "effort": "medium",
+              "description": "Bundled medium"
+            },
+            {
+              "effort": "high",
+              "description": "Bundled high"
+            },
+            {
+              "effort": "xhigh",
+              "description": "Bundled xhigh"
+            },
+            {
+              "effort": "max",
+              "description": "Bundled max"
+            },
+            {
+              "effort": "ultra",
+              "description": "Bundled ultra"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6-astra",
+          "kobashi_test_metadata": {
+            "family": "astra",
+            "nested": {
+              "value": 1
+            }
+          },
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 1000000,
+          "max_context_window": 1000000,
+          "auto_compact_token_limit": 872000
+        },
+        {
+          "slug": "gpt-5.6-sol",
+          "display_name": "gpt-5.6-sol",
+          "description": "gpt-5.6-sol bundled description",
+          "default_reasoning_level": "medium",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Bundled low"
+            },
+            {
+              "effort": "medium",
+              "description": "Bundled medium"
+            },
+            {
+              "effort": "high",
+              "description": "Greater reasoning depth for complex problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 2,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-5.6-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-5.6-sol",
+            "display_name": "gpt-5.6-sol",
+            "description": "gpt-5.6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-5.6-sol",
+            "kobashi_test_metadata": {
+              "family": "full",
+              "nested": {
+                "value": 1
+              }
+            }
+          },
+          {
+            "slug": "gpt-5.6-luna",
+            "display_name": "gpt-5.6-luna",
+            "description": "gpt-5.6-luna bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-5.6-luna",
+            "kobashi_test_metadata": {
+              "family": "small"
+            }
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-7-orbit",
+            "name": "GPT-7 Orbit",
+            "vendor": "OpenAI",
+            "version": "gpt-7-orbit",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 1200000,
+                "max_prompt_tokens": 950000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-7-orbit",
+          "display_name": "GPT-7 Orbit",
+          "description": "GPT-7 Orbit (available through GitHub Copilot).",
+          "default_reasoning_level": "medium",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Bundled low"
+            },
+            {
+              "effort": "medium",
+              "description": "Bundled medium"
+            },
+            {
+              "effort": "high",
+              "description": "Greater reasoning depth for complex problems"
+            },
+            {
+              "effort": "xhigh",
+              "description": "Extra high reasoning depth for complex problems"
+            },
+            {
+              "effort": "max",
+              "description": "Maximum reasoning depth for the hardest problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-5.6-sol",
+          "kobashi_test_metadata": {
+            "family": "full",
+            "nested": {
+              "value": 1
+            }
+          },
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 1000000,
+          "max_context_window": 1000000,
+          "auto_compact_token_limit": 900000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-5.6-sol",
+            "display_name": "gpt-5.6-sol",
+            "description": "gpt-5.6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 2,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-5.6-sol"
+          },
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "gpt-6-astra",
+            "description": "gpt-6-astra bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 1,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra"
+          },
+          {
+            "slug": "gpt-5.4",
+            "display_name": "gpt-5.4",
+            "description": "gpt-5.4 bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-5.4"
+          },
+          {
+            "slug": "gpt-internal-preview",
+            "display_name": "GPT Internal Only",
+            "description": "gpt-internal-preview bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-internal-preview"
+          },
+          {
+            "slug": "codex-auto-review",
+            "display_name": "codex-auto-review",
+            "description": "codex-auto-review bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for codex-auto-review"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "gpt-6-astra",
+            "description": "gpt-6-astra bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra"
+          }
+        ]
+      },
+      {
+        "data": []
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "gpt-6-astra",
+            "description": "gpt-6-astra bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-astra",
+            "name": "gpt-6-astra",
+            "vendor": "OpenAI",
+            "version": "gpt-6-astra",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "disabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "gpt-6-astra",
+            "description": "gpt-6-astra bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-astra",
+            "name": "gpt-6-astra",
+            "vendor": "OpenAI",
+            "version": "gpt-6-astra",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/chat/completions"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-astra",
+            "display_name": "gpt-6-astra",
+            "description": "gpt-6-astra bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "list",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-astra"
+          }
+        ]
+      },
+      {}
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      null
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      null
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {}
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": "invalid"
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6.1-sol",
+            "display_name": "gpt-6.1-sol",
+            "description": "gpt-6.1-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6.1-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6.1-sol",
+            "name": "gpt-6.1-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6.1-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "display_name": "gpt-6.1-sol",
+          "description": "gpt-6.1-sol bundled description",
+          "default_reasoning_level": "medium",
+          "supported_reasoning_levels": [
+            {
+              "effort": "none",
+              "description": "No reasoning"
+            },
+            {
+              "effort": "low",
+              "description": "Bundled low"
+            },
+            {
+              "effort": "medium",
+              "description": "Bundled medium"
+            },
+            {
+              "effort": "high",
+              "description": "Greater reasoning depth for complex problems"
+            },
+            {
+              "effort": "xhigh",
+              "description": "Extra high reasoning depth for complex problems"
+            },
+            {
+              "effort": "max",
+              "description": "Maximum reasoning depth for the hardest problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6.1-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6.1-sol",
+            "display_name": "gpt-6.1-sol",
+            "description": "gpt-6.1-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low"
+              },
+              {
+                "effort": "ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6.1-sol",
+            "multi_agent_reasoning_effort": "xhigh"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6.1-sol",
+            "name": "gpt-6.1-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6.1-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "display_name": "gpt-6.1-sol",
+          "description": "gpt-6.1-sol bundled description",
+          "default_reasoning_level": "low",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Fast responses with lighter reasoning"
+            },
+            {
+              "effort": "xhigh",
+              "description": "Extra high reasoning depth for complex problems"
+            },
+            {
+              "effort": "ultra",
+              "description": "Maximum reasoning with automatic task delegation"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6.1-sol",
+          "multi_agent_reasoning_effort": "xhigh",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6.1-sol",
+            "display_name": "gpt-6.1-sol",
+            "description": "gpt-6.1-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low"
+              },
+              {
+                "effort": "ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6.1-sol",
+            "multi_agent_reasoning_effort": "xhigh"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6.1-sol",
+            "name": "gpt-6.1-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6.1-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "max"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "display_name": "gpt-6.1-sol",
+          "description": "gpt-6.1-sol bundled description",
+          "default_reasoning_level": "low",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Fast responses with lighter reasoning"
+            },
+            {
+              "effort": "max",
+              "description": "Maximum reasoning depth for the hardest problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6.1-sol",
+          "multi_agent_reasoning_effort": "xhigh",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6.1-sol",
+            "display_name": "gpt-6.1-sol",
+            "description": "gpt-6.1-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low"
+              },
+              {
+                "effort": "ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6.1-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6.1-sol",
+            "name": "gpt-6.1-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6.1-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "max"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "display_name": "gpt-6.1-sol",
+          "description": "gpt-6.1-sol bundled description",
+          "default_reasoning_level": "low",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Fast responses with lighter reasoning"
+            },
+            {
+              "effort": "max",
+              "description": "Maximum reasoning depth for the hardest problems"
+            },
+            {
+              "effort": "ultra",
+              "description": "Maximum reasoning with automatic task delegation"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6.1-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6.1-sol",
+            "display_name": "gpt-6.1-sol",
+            "description": "gpt-6.1-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low"
+              },
+              {
+                "effort": "ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6.1-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6.1-sol",
+            "name": "gpt-6.1-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6.1-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "display_name": "gpt-6.1-sol",
+          "description": "gpt-6.1-sol bundled description",
+          "default_reasoning_level": "low",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Fast responses with lighter reasoning"
+            },
+            {
+              "effort": "xhigh",
+              "description": "Extra high reasoning depth for complex problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6.1-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-sol",
+            "display_name": "gpt-6-sol",
+            "description": "gpt-6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "max"
+              },
+              {
+                "effort": "ultra"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-7-sol",
+            "name": "gpt-7-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-7-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "max",
+                  "ultra"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-7-sol",
+          "display_name": "gpt-7-sol",
+          "description": "gpt-7-sol (available through GitHub Copilot).",
+          "default_reasoning_level": "max",
+          "supported_reasoning_levels": [
+            {
+              "effort": "max",
+              "description": "Maximum reasoning depth for the hardest problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-sol",
+            "display_name": "gpt-6-sol",
+            "description": "gpt-6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-sol",
+            "name": "gpt-6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6-sol",
+          "display_name": "gpt-6-sol",
+          "description": "gpt-6-sol bundled description",
+          "default_reasoning_level": null,
+          "supported_reasoning_levels": [],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-sol",
+            "display_name": "gpt-6-sol",
+            "description": "gpt-6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-sol",
+            "name": "gpt-6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": []
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6-sol",
+          "display_name": "gpt-6-sol",
+          "description": "gpt-6-sol bundled description",
+          "default_reasoning_level": null,
+          "supported_reasoning_levels": [],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": [
+          {
+            "slug": "gpt-6-sol",
+            "display_name": "gpt-6-sol",
+            "description": "gpt-6-sol bundled description",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Bundled low"
+              },
+              {
+                "effort": "medium",
+                "description": "Bundled medium"
+              }
+            ],
+            "shell_type": "unified_exec",
+            "visibility": "hide",
+            "supported_in_api": true,
+            "priority": 99,
+            "support_verbosity": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 12345
+            },
+            "experimental_supported_tools": [],
+            "base_instructions": "Bundled instructions for gpt-6-sol"
+          }
+        ]
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-sol",
+            "name": "gpt-6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "future"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6-sol",
+          "display_name": "gpt-6-sol",
+          "description": "gpt-6-sol bundled description",
+          "default_reasoning_level": null,
+          "supported_reasoning_levels": [],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "support_verbosity": true,
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 12345
+          },
+          "experimental_supported_tools": [],
+          "base_instructions": "Bundled instructions for gpt-6-sol",
+          "availability_nux": null,
+          "upgrade": null,
+          "context_window": 272000,
+          "max_context_window": 272000
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": []
+      },
+      {
+        "data": [
+          {
+            "id": "gpt-6-sol",
+            "name": "gpt-6-sol",
+            "vendor": "OpenAI",
+            "version": "gpt-6-sol",
+            "model_picker_enabled": true,
+            "supported_endpoints": [
+              "/responses",
+              "ws:/responses"
+            ],
+            "policy": {
+              "state": "enabled"
+            },
+            "capabilities": {
+              "type": "chat",
+              "limits": {
+                "max_context_window_tokens": 400000,
+                "max_prompt_tokens": 272000
+              },
+              "supports": {
+                "streaming": true,
+                "tool_calls": true,
+                "reasoning_effort": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "models": [
+        {
+          "slug": "gpt-6-sol",
+          "display_name": "gpt-6-sol",
+          "description": "gpt-6-sol (available through GitHub Copilot).",
+          "default_reasoning_level": "medium",
+          "supported_reasoning_levels": [
+            {
+              "effort": "low",
+              "description": "Fast responses with lighter reasoning"
+            },
+            {
+              "effort": "medium",
+              "description": "Balances speed and reasoning depth for everyday tasks"
+            },
+            {
+              "effort": "high",
+              "description": "Greater reasoning depth for complex problems"
+            }
+          ],
+          "shell_type": "unified_exec",
+          "visibility": "list",
+          "supported_in_api": true,
+          "priority": 1,
+          "additional_speed_tiers": [],
+          "service_tiers": [],
+          "availability_nux": null,
+          "upgrade": null,
+          "include_skills_usage_instructions": true,
+          "include_plugin_usage_instructions": true,
+          "include_apps_usage_instructions": true,
+          "default_reasoning_summary": "auto",
+          "support_verbosity": true,
+          "apply_patch_tool_type": "freeform",
+          "web_search_tool_type": "text_and_image",
+          "truncation_policy": {
+            "mode": "tokens",
+            "limit": 10000
+          },
+          "supports_image_detail_original": true,
+          "context_window": 272000,
+          "max_context_window": 272000,
+          "effective_context_window_percent": 95,
+          "experimental_supported_tools": [],
+          "input_modalities": [
+            "text",
+            "image"
+          ],
+          "supports_search_tool": true,
+          "use_responses_lite": true,
+          "base_instructions": "You are Codex, an agentic coding assistant. Follow developer and user instructions, use the available tools when helpful, and work carefully in the user's workspace."
+        }
+      ]
+    }
+  },
+  {
+    "operation": "buildKobashiModelCatalog",
+    "args": [
+      {
+        "models": []
+      }
+    ],
+    "expected": {
+      "models": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.context": [
+          "auto",
+          "current_turn"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "constraints": {
+          "reasoning.context": [
+            "auto",
+            "current_turn"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5-mini",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.context": [
+          "auto",
+          "current_turn"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "constraints": {
+          "reasoning.context": [
+            "auto",
+            "current_turn"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5.3-codex",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.context": [
+          "auto",
+          "current_turn"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "all_turns",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      {
+        "constraints": {
+          "reasoning.context": [
+            "auto",
+            "current_turn"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-future-unseen",
+        "reasoning": {
+          "context": "current_turn",
+          "effort": "high"
+        },
+        "input": [
+          {
+            "role": "user",
+            "content": "Remember 42"
+          }
+        ],
+        "tools": [
+          {
+            "name": "tool"
+          }
+        ]
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "auto"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "auto",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.context": [
+          "auto"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'made_up'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "max"
+        },
+        "text": {
+          "verbosity": "high"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'max' is not supported with the 'brand-new-model' model. Supported values are: 'low' and 'medium' and 'high'.",
+          "param": "reasoning.effort"
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        },
+        "text": {
+          "verbosity": "high"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.effort",
+          "from": "max",
+          "to": "high",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.effort": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        },
+        "text": {
+          "verbosity": "high"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'high' is not supported with the 'brand-new-model' model. Supported values are: 'low' and 'medium'.",
+          "param": "text.verbosity"
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        },
+        "text": {
+          "verbosity": "medium"
+        }
+      },
+      "changes": [
+        {
+          "field": "text.verbosity",
+          "from": "high",
+          "to": "medium",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "text.verbosity": [
+          "low",
+          "medium"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        },
+        "text": {
+          "verbosity": "high"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'high' is not supported with the 'brand-new-model' model. Supported values are: 'low' and 'medium'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        },
+        "text": {
+          "verbosity": "high"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: 'reasoning.summary'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [
+        {
+          "field": "reasoning.summary",
+          "from": "auto",
+          "to": null,
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.summary": null
+      }
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: 'model'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: 'input'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: 'tools'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: 'max_output_tokens'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      {
+        "error": {
+          "message": "Unknown parameter: '__proto__'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "reasoning": {
+          "summary": "auto",
+          "effort": "high"
+        },
+        "input": "content"
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "gpt-5.5"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-5-codex",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "gpt-5.5"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-5-codex",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "gpt-4o",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "gpt-5.5"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "gpt-4o",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "toString",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "gpt-5.5"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "toString",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      null
+    ],
+    "expected": []
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "gpt-5.5"
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "future",
+        "capabilities": {
+          "supports": {
+            "reasoning_effort": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "max"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "future",
+            "capabilities": {
+              "supports": {
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "xhigh"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.effort",
+          "from": "max",
+          "to": "xhigh",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "future",
+        "capabilities": {
+          "supports": {
+            "reasoning_effort": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "minimal"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "future",
+            "capabilities": {
+              "supports": {
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "low"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.effort",
+          "from": "minimal",
+          "to": "low",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "future",
+        "capabilities": {
+          "supports": {
+            "reasoning_effort": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "none"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "future",
+            "capabilities": {
+              "supports": {
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "none"
+        }
+      },
+      "changes": []
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "future",
+        "capabilities": {
+          "supports": {
+            "reasoning_effort": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "HIGH"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "future",
+            "capabilities": {
+              "supports": {
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.effort",
+          "from": "HIGH",
+          "to": "high",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "getCopilotReasoningEfforts",
+    "args": [
+      {
+        "id": "future",
+        "capabilities": {
+          "supports": {
+            "reasoning_effort": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ]
+          }
+        }
+      }
+    ],
+    "expected": [
+      "none",
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "effort": "xhigh"
+        }
+      },
+      {
+        "copilotModels": [
+          {
+            "id": "future",
+            "capabilities": {
+              "supports": {
+                "reasoning_effort": [
+                  "none",
+                  "low",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            }
+          }
+        ],
+        "constraints": {
+          "reasoning.effort": [
+            "low",
+            "high"
+          ]
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.effort",
+          "from": "xhigh",
+          "to": "high",
+          "reason": "verified upstream capability"
+        }
+      ]
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "not json"
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "unauthorized"
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'.",
+          "param": "input"
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'all_turns' and 'auto'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'different' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "all_turns"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "current_turn"
+        }
+      },
+      "changes": [
+        {
+          "field": "reasoning.context",
+          "from": "all_turns",
+          "to": "current_turn",
+          "reason": "verified upstream capability"
+        }
+      ],
+      "constraints": {
+        "reasoning.context": [
+          "auto",
+          "current_turn"
+        ]
+      }
+    }
+  },
+  {
+    "operation": "retryCodexRequest",
+    "args": [
+      {
+        "model": "future",
+        "reasoning": {
+          "context": "current_turn"
+        }
+      },
+      {
+        "error": {
+          "message": "Unsupported value: 'all_turns' is not supported with the 'brand-new-model' model. Supported values are: 'auto' and 'current_turn'."
+        }
+      }
+    ],
+    "expected": {
+      "body": {
+        "model": "future",
+        "reasoning": {
+          "context": "current_turn"
+        }
+      },
+      "changes": [],
+      "constraints": {}
+    }
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      null
+    ],
+    "expected": {
+      "body": null,
+      "changes": []
+    }
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      null
+    ],
+    "expected": {
+      "changes": []
+    }
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      []
+    ],
+    "expected": {
+      "body": [],
+      "changes": []
+    }
+  },
+  {
+    "operation": "normalizeCodexRequest",
+    "args": [
+      "input"
+    ],
+    "expected": {
+      "body": "input",
+      "changes": []
+    }
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      404,
+      {
+        "error": {
+          "code": "model_not_found"
+        }
+      }
+    ],
+    "expected": true
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      401,
+      {
+        "error": {
+          "code": "model_not_found"
+        }
+      }
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      429,
+      {
+        "error": {
+          "code": "model_not_found"
+        }
+      }
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      500,
+      {
+        "error": {
+          "code": "model_not_found"
+        }
+      }
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      503,
+      {
+        "error": {
+          "code": "model_not_found"
+        }
+      }
+    ],
+    "expected": false
+  },
+  {
+    "operation": "isModelUnavailable",
+    "args": [
+      400,
+      {
+        "error": {
+          "code": "invalid_request_body"
+        }
+      }
+    ],
+    "expected": false
+  },
+  {
+    "operation": "responsesSSE",
+    "args": [
+      "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-first\",\"output\":[]}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp-random\",\"output\":[]}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg-first\",\"type\":\"message\",\"content\":[]}}\n\nevent: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg-random-1\",\"content_index\":0}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg-random-2\",\"content_index\":0,\"delta\":\"hello\"}\n\nevent: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg-random-3\",\"content_index\":0,\"text\":\"hello\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg-random-4\",\"type\":\"message\",\"content\":[]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-random-2\",\"output\":[{\"id\":\"msg-random-5\",\"type\":\"message\",\"content\":[]}]}}\n\n"
+    ],
+    "expected": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-first\",\"output\":[]}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp-first\",\"output\":[]}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg-first\",\"type\":\"message\",\"content\":[]}}\n\nevent: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"output_index\":0,\"item_id\":\"msg-first\",\"content_index\":0}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"msg-first\",\"content_index\":0,\"delta\":\"hello\"}\n\nevent: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"output_index\":0,\"item_id\":\"msg-first\",\"content_index\":0,\"text\":\"hello\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg-first\",\"type\":\"message\",\"content\":[]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-first\",\"output\":[{\"id\":\"msg-first\",\"type\":\"message\",\"content\":[]}]}}\n\n"
+  },
+  {
+    "operation": "responsesSSE",
+    "args": [
+      "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg-0\",\"type\":\"message\"}}\n\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"tool-1\",\"call_id\":\"call-1\",\"type\":\"function_call\"}}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"tool-random-1\",\"delta\":\"{}\"}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"id\":\"tool-random-2\",\"call_id\":\"call-random\",\"type\":\"function_call\"}}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg-random\",\"type\":\"message\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp\",\"output\":[{\"id\":\"msg-random-2\",\"type\":\"message\"},{\"id\":\"tool-random-3\",\"call_id\":\"call-random-2\",\"type\":\"function_call\"}]}}\n\n"
+    ],
+    "expected": "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg-0\",\"type\":\"message\"}}\n\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"tool-1\",\"call_id\":\"call-1\",\"type\":\"function_call\"}}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"tool-1\",\"delta\":\"{}\"}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"id\":\"tool-1\",\"call_id\":\"call-1\",\"type\":\"function_call\"}}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg-0\",\"type\":\"message\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp\",\"output\":[{\"id\":\"msg-0\",\"type\":\"message\"},{\"id\":\"tool-1\",\"call_id\":\"call-1\",\"type\":\"function_call\"}]}}\n\n"
+  },
+  {
+    "operation": "responsesSSE",
+    "args": [
+      "event: response.output_item.added\r\ndata: {\"type\":\"response.output_item.added\",\r\ndata: \"output_index\":0,\"item\":{\"id\":\"消息-id\",\"type\":\"message\"}}\r\n\r\nevent: response.output_text.delta\r\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"random\",\"delta\":\"你\"}\r\n\r\n: keepalive\r\n\r\ndata: [DONE]\r\n\r\n"
+    ],
+    "expected": "event: response.output_item.added\r\ndata: {\"type\":\"response.output_item.added\",\r\ndata: \"output_index\":0,\"item\":{\"id\":\"消息-id\",\"type\":\"message\"}}\r\n\r\nevent: response.output_text.delta\r\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"消息-id\",\"delta\":\"你\"}\r\n\r\n: keepalive\r\n\r\ndata: [DONE]\r\n\r\n"
+  },
+  {
+    "operation": "responsesSSE",
+    "args": [
+      "event: custom\ndata: not-json\n\n: ping\n\ndata: [DONE]\n\n"
+    ],
+    "expected": "event: custom\ndata: not-json\n\n: ping\n\ndata: [DONE]\n\n"
+  },
+  {
+    "operation": "responsesSSE",
+    "args": [
+      "event: error\ndata: {\"error\":{\"code\":\"model_not_found\"}}\n\n"
+    ],
+    "expected": "event: error\ndata: {\"error\":{\"code\":\"model_not_found\"}}\n\n"
+  }
+]
