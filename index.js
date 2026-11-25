@@ -10,7 +10,9 @@ const {
   restoreCodexConfigContents,
   isKobashiManagedConfig,
   isKobashiManagedAuth,
+  parseCodexNativeAuthPreference,
 } = require("./lib/codex-config");
+const { migrateNativeAuth } = require("./lib/codex-native-auth");
 const {
   EMPTY_CATALOG_MODEL_ID,
   buildKobashiModelCatalog,
@@ -25,6 +27,7 @@ const { CodexModelCapabilities } = require("./lib/codex-model-capabilities");
 const { CodexClientLifecycle } = require("./lib/codex-client-lifecycle");
 const { probeCodexModel } = require("./lib/codex-model-probe");
 const { createCodexProbeTransport } = require("./lib/codex-probe-transport");
+const { createCodexDesktopLauncher, createCodexOpenHandler } = require("./lib/codex-desktop-launcher");
 
 const DEBUG = process.argv.includes("--debug");
 const log = (...a) => console.log(...a);
@@ -596,12 +599,17 @@ function startCodexClientWatch() {
 
 async function writeCodexConfig() {
   const account = githubToken;
+  const chatgptAuth = readCodexNativeAuthPreference();
+  const configurationGeneration = ++codexConfigGeneration;
+  codexConfigured = false;
   fs.mkdirSync(CODEX_DIR, { recursive: true });
 
-  const authExists = fs.existsSync(CODEX_AUTH);
-  const authSource = authExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
-  if (authExists && !isKobashiManagedAuth(authSource)) {
-    writeTextAtomic(CODEX_AUTH + ".bak", authSource, 0o600);
+  if (!chatgptAuth) {
+    const authExists = fs.existsSync(CODEX_AUTH);
+    const authSource = authExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
+    if (authExists && !isKobashiManagedAuth(authSource)) {
+      writeTextAtomic(CODEX_AUTH + ".bak", authSource, 0o600);
+    }
   }
 
   const configExists = fs.existsSync(CODEX_CONFIG);
@@ -637,38 +645,47 @@ async function writeCodexConfig() {
     dbg("[Bridge] model catalog write failed:", error.message);
   }
 
-  if (githubToken !== account || !codexEnabled) return;
+  if (githubToken !== account || !codexEnabled || configurationGeneration !== codexConfigGeneration) return;
   // First-time validation can take a while; preserve any user edits made while
   // it was running instead of injecting into the pre-validation file contents.
   if (fs.existsSync(CODEX_CONFIG)) {
     src = fs.readFileSync(CODEX_CONFIG, "utf8");
     if (!isKobashiManagedConfig(src)) writeTextAtomic(backupPath, src);
   }
-  if (fs.existsSync(CODEX_AUTH)) {
-    const currentAuth = fs.readFileSync(CODEX_AUTH, "utf8");
-    if (!isKobashiManagedAuth(currentAuth)) writeTextAtomic(CODEX_AUTH + ".bak", currentAuth, 0o600);
+  if (chatgptAuth) {
+    // Upgrade only our exact legacy placeholder after the account guard.
+    // Native credentials and their recovery backup survive normal shutdown.
+    migrateNativeAuth({ authPath: CODEX_AUTH, fs, writeTextAtomic });
+  } else {
+    if (fs.existsSync(CODEX_AUTH)) {
+      const currentAuth = fs.readFileSync(CODEX_AUTH, "utf8");
+      if (!isKobashiManagedAuth(currentAuth)) writeTextAtomic(CODEX_AUTH + ".bak", currentAuth, 0o600);
+    }
+    writeTextAtomic(
+      CODEX_AUTH,
+      `${JSON.stringify({ OPENAI_API_KEY: "PROXY_MANAGED" }, null, 2)}\n`,
+      0o600,
+    );
   }
-
-  writeTextAtomic(
-    CODEX_AUTH,
-    `${JSON.stringify({ OPENAI_API_KEY: "PROXY_MANAGED" }, null, 2)}\n`,
-    0o600,
-  );
 
   // The live file may have been edited since the backup was created. Always
   // merge from it first; the backup is only the restoration baseline.
   writeTextAtomic(
     CODEX_CONFIG,
-    injectCodexConfig(src, PROXY_PORT, { modelCatalogPath }),
+    injectCodexConfig(src, PROXY_PORT, { modelCatalogPath, chatgptAuth }),
   );
 
   if (process.platform === "win32") {
-    try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore", windowsHide: true }); } catch {}
-    try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore", windowsHide: true }); } catch {}
+    if (!chatgptAuth) {
+      try { execSync("setx OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore", windowsHide: true }); } catch {}
+      try { execSync(`setx OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore", windowsHide: true }); } catch {}
+    }
     try { execSync(`setx NO_PROXY "127.0.0.1,localhost"`, { stdio: "ignore", windowsHide: true }); } catch {}
   } else if (process.platform === "darwin") {
-    try { execSync("launchctl setenv OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore" }); } catch {}
-    try { execSync(`launchctl setenv OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
+    if (!chatgptAuth) {
+      try { execSync("launchctl setenv OPENAI_API_KEY PROXY_MANAGED", { stdio: "ignore" }); } catch {}
+      try { execSync(`launchctl setenv OPENAI_BASE_URL http://127.0.0.1:${PROXY_PORT}/v1`, { stdio: "ignore" }); } catch {}
+    }
     // CRITICAL: Codex's Rust HTTP client honours system proxy. If user has a system
     // HTTP proxy (Clash etc.) at 127.0.0.1:1089, codex's request to our local 18921
     // would be intercepted by the proxy and silently dropped. Bypass for loopback.
@@ -676,6 +693,7 @@ async function writeCodexConfig() {
     try { execSync(`launchctl setenv no_proxy "127.0.0.1,localhost"`, { stdio: "ignore" }); } catch {}
   }
   startCodexClientWatch();
+  codexConfigured = true;
   log("[Bridge] Codex config injected");
 }
 
@@ -698,28 +716,35 @@ function stripInjectedCodexConfig(backupSource = "", restoreEmptyFile = false) {
 }
 
 function restoreCodexConfig() {
+  const chatgptAuth = readCodexNativeAuthPreference();
+  codexConfigGeneration++;
+  codexConfigured = false;
   stopCodexClientWatch();
-  const authBackupPath = CODEX_AUTH + ".bak";
-  const authBackupExists = fs.existsSync(authBackupPath);
-  let authRestored = false;
-  try {
-    const liveExists = fs.existsSync(CODEX_AUTH);
-    const liveSource = liveExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
-    const backupSource = authBackupExists ? fs.readFileSync(authBackupPath, "utf-8") : "";
-    const liveIsManaged = liveExists && isKobashiManagedAuth(liveSource);
-    const backupIsUsable = authBackupExists && !isKobashiManagedAuth(backupSource);
+  // Native mode owns the provider injection, but never the account session.
+  // Restore the previous model route below without rolling back native login.
+  if (!chatgptAuth) {
+    const authBackupPath = CODEX_AUTH + ".bak";
+    const authBackupExists = fs.existsSync(authBackupPath);
+    let authRestored = false;
+    try {
+      const liveExists = fs.existsSync(CODEX_AUTH);
+      const liveSource = liveExists ? fs.readFileSync(CODEX_AUTH, "utf-8") : "";
+      const backupSource = authBackupExists ? fs.readFileSync(authBackupPath, "utf-8") : "";
+      const liveIsManaged = liveExists && isKobashiManagedAuth(liveSource);
+      const backupIsUsable = authBackupExists && !isKobashiManagedAuth(backupSource);
 
-    if (backupIsUsable && (!liveExists || liveIsManaged)) {
-      writeTextAtomic(CODEX_AUTH, backupSource, 0o600);
-    } else if (liveIsManaged) {
-      fs.unlinkSync(CODEX_AUTH);
+      if (backupIsUsable && (!liveExists || liveIsManaged)) {
+        writeTextAtomic(CODEX_AUTH, backupSource, 0o600);
+      } else if (liveIsManaged) {
+        fs.unlinkSync(CODEX_AUTH);
+      }
+      authRestored = true;
+    } catch (e) {
+      dbg("[Bridge] restore codex auth failed:", e.message);
     }
-    authRestored = true;
-  } catch (e) {
-    dbg("[Bridge] restore codex auth failed:", e.message);
-  }
-  if (authRestored && authBackupExists) {
-    try { fs.unlinkSync(authBackupPath); } catch (e) { dbg("[Bridge] remove codex auth backup failed:", e.message); }
+    if (authRestored && authBackupExists) {
+      try { fs.unlinkSync(authBackupPath); } catch (e) { dbg("[Bridge] remove codex auth backup failed:", e.message); }
+    }
   }
 
   const backupPath = CODEX_CONFIG + ".bak";
@@ -746,10 +771,12 @@ function restoreCodexConfig() {
     try { fs.unlinkSync(backupPath); } catch (e) { dbg("[Bridge] remove codex config backup failed:", e.message); }
   }
 
-  if (process.platform === "win32") {
+  // Native mode uses the provider's explicit base_url and does not set either
+  // OPENAI variable. Leave the user's environment alone when restoring it.
+  if (!chatgptAuth && process.platform === "win32") {
     try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_API_KEY /f', { stdio: "ignore", windowsHide: true }); } catch {}
     try { execSync('REG DELETE "HKCU\\Environment" /v OPENAI_BASE_URL /f', { stdio: "ignore", windowsHide: true }); } catch {}
-  } else if (process.platform === "darwin") {
+  } else if (!chatgptAuth && process.platform === "darwin") {
     try { execSync("launchctl unsetenv OPENAI_API_KEY", { stdio: "ignore" }); } catch {}
     try { execSync("launchctl unsetenv OPENAI_BASE_URL", { stdio: "ignore" }); } catch {}
   }
@@ -833,6 +860,19 @@ function restoreClaudeConfig() {
 // ─── Session persistence ────────────────────────────────────────────────────
 const KOBASHI_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".kobashi");
 const SESSION_FILE = path.join(KOBASHI_DIR, "session.json");
+const CODEX_NATIVE_AUTH_PREFERENCE = path.join(KOBASHI_DIR, "codex-native-auth.json");
+
+function readCodexNativeAuthPreference() {
+  let source;
+  try { source = fs.readFileSync(CODEX_NATIVE_AUTH_PREFERENCE, "utf8"); }
+  catch (error) {
+    // Native account identity is the default on every installation. The local
+    // preference remains only as an explicit compatibility opt-out.
+    if (error.code === "ENOENT") return true;
+    throw error;
+  }
+  return parseCodexNativeAuthPreference(source);
+}
 // Legacy location: kobashi's own state used to live inside Codex's config dir,
 // under a "ccb-" prefix from when this was called Copilot Bridge. Both were
 // wrong: the file is ours, not Codex's. Migrated on first run; the old file is
@@ -894,6 +934,7 @@ async function loadSession() {
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, codexEnabled = false, claudeEnabled = false;
+let codexConfigured = false, codexConfigGeneration = 0;
 // How this machine signed in: "device" (GitHub device flow) or "token" (a token
 // pasted by the user). Device flow authenticates as the *account holder*, so it
 // needs their password — a friend running Kobashi off a shared token can never
@@ -2062,7 +2103,13 @@ const claudeProxy = http.createServer(async (req, res) => {
 });
 
 // ─── UI server ─────────────────────────────────────────────────────────────
+const codexDesktopLauncher = createCodexDesktopLauncher({
+  platform: process.platform, codexHome: CODEX_DIR, nativeAccount: readCodexNativeAuthPreference,
+});
+const codexOpenHandler = createCodexOpenHandler({ launcher: codexDesktopLauncher,
+  port: UI_PORT, ready: () => !!githubToken && codexEnabled && codexConfigured });
 const ui = http.createServer(async (req, res) => {
+  if (await codexOpenHandler(req, res)) return;
   if (req.method === "POST" && req.url === "/api/start") {
     const r = await httpsRequest(
       { hostname: "github.com", path: "/login/device/code", method: "POST", headers: { Accept: "application/json", "User-Agent": "GitHubCopilotChat/0.38.2", "Content-Type": "application/x-www-form-urlencoded" } },
@@ -2160,7 +2207,7 @@ const ui = http.createServer(async (req, res) => {
     let usage = null;
     try { usage = await getCopilotUsage(); } catch { usage = null; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, codexModels: codexCapabilities.status(), version: APP_VERSION, releaseDate: APP_DATE })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, desktopLaunchSupported: codexDesktopLauncher.supported, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, codexModels: codexCapabilities.status(), version: APP_VERSION, releaseDate: APP_DATE })); return;
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }

@@ -491,6 +491,30 @@ test("Windows discovery tries newest binary first and tolerates a broken install
   });
 });
 
+test("Windows discovery prefers the current Programs install and falls back if it is broken", () => {
+  withTempDir(tempRoot => {
+    const installed = path.join(tempRoot, "Programs", "OpenAI", "Codex", "bin", "codex.exe");
+    const legacy = path.join(tempRoot, "OpenAI", "Codex", "bin", "old-version", "codex.exe");
+    for (const command of [installed, legacy]) {
+      fs.mkdirSync(path.dirname(command), { recursive: true });
+      fs.writeFileSync(command, "");
+    }
+    for (const broken of [false, true]) {
+      const commands = [];
+      const result = loadBundledCodexModelCatalog({
+        tempRoot, platform: "win32", env: { LOCALAPPDATA: tempRoot },
+        execFileSyncImpl(command) {
+          commands.push(command);
+          if (broken && command === installed) throw new Error("broken install");
+          return JSON.stringify({ models: [modelRecord("gpt-6-astra")] });
+        },
+      });
+      assert.deepEqual(commands, broken ? [installed, legacy] : [installed]);
+      assert.equal(result.models[0].slug, "gpt-6-astra");
+    }
+  });
+});
+
 test("Windows discovery with no desktop installation falls back safely", () => {
   withTempDir(tempRoot => {
     let warning;

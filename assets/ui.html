@@ -93,6 +93,13 @@
   .bridge-logo svg{width:20px;height:20px}
   .bridge-logo img{width:24px;height:24px;object-fit:contain}
   .bridge-logo.claude{color:#d97757}
+  button.bridge-logo{padding:0;appearance:none;-webkit-appearance:none;color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,box-shadow .2s,opacity .2s}
+  button.bridge-logo:hover:not(:disabled){border-color:var(--btn-hover-border);box-shadow:var(--btn-hover-glow)}
+  button.bridge-logo:focus-visible{outline:2px solid var(--accent1);outline-offset:3px}
+  button.bridge-logo:disabled{cursor:default}
+  button.bridge-logo[aria-busy="true"]{cursor:wait;opacity:.65}
+  button.bridge-logo.launch-error{border-color:var(--disconnect-color)}
+  .launch-feedback{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .panel-row-left{display:flex;align-items:center;gap:12px}
   /* ── Account 面板：去掉 "Account" 标签，腾出的行高给用量进度条 ──────────────
      高度锁死。旧布局 = 18(pad)+14(label)+4+26(badge)+18(pad) = 80px。
@@ -209,9 +216,10 @@
     <div class="panel" style="margin-top:12px">
       <div class="panel-row">
         <div class="panel-row-left">
-          <div class="bridge-logo codex" title="OpenAI Codex">
-            <img src="/codex-logo.png" alt="Codex"/>
-          </div>
+          <button class="bridge-logo codex" id="codex-launch" type="button" onclick="openCodexDesktop()" aria-label="Open Codex" title="OpenAI Codex" aria-busy="false" disabled>
+            <img src="/codex-logo.png" alt="" aria-hidden="true"/>
+          </button>
+          <span class="launch-feedback" id="codex-launch-feedback" role="status" aria-live="polite"></span>
           <div>
             <span class="panel-label">Codex Bridge</span>
             <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
@@ -382,6 +390,53 @@ async function submitToken(){
   show('connected');
   revealToken(false);
 }
+let desktopLaunchSupported=false,desktopLaunchPending=false,desktopLaunchMessage='',desktopLaunchError=false,desktopLaunchFeedbackTimer=null;
+const DESKTOP_LAUNCH_ERRORS={
+  desktop_not_found:'Install the official Codex desktop app, then try again.',
+  launch_failed:'Could not open Codex. Please try again.',
+  launch_pending:'Codex has not finished opening. Check for a system prompt before trying again.',
+  shared_backend_running:'An older shared backend is still running. Stop it before opening the native desktop.',
+  proxy_settings_unavailable:'Could not read the current system proxy. Please try again.',
+  unsupported_platform:'Opening Codex from this icon is available on macOS and Windows.',
+  bridge_not_ready:'Enable the Codex bridge before opening Codex.'
+};
+function renderDesktopLaunch(){
+  const button=document.getElementById('codex-launch');
+  button.disabled=!desktopLaunchSupported||desktopLaunchPending;
+  button.setAttribute('aria-busy',String(desktopLaunchPending));
+  button.setAttribute('aria-label',desktopLaunchSupported?'Open Codex':'Codex');
+  button.title=desktopLaunchPending?'Opening Codex…':desktopLaunchMessage||(desktopLaunchSupported?'Open Codex':'OpenAI Codex');
+  button.classList.toggle('launch-error',desktopLaunchError);
+}
+function setDesktopLaunchSupport(supported){
+  desktopLaunchSupported=supported===true;
+  renderDesktopLaunch();
+}
+function desktopLaunchFeedback(message,error=false){
+  if(desktopLaunchFeedbackTimer!==null)clearTimeout(desktopLaunchFeedbackTimer);
+  desktopLaunchMessage=message;desktopLaunchError=error;
+  document.getElementById('codex-launch-feedback').textContent=message;
+  renderDesktopLaunch();
+  desktopLaunchFeedbackTimer=setTimeout(()=>{
+    desktopLaunchFeedbackTimer=null;desktopLaunchMessage='';desktopLaunchError=false;
+    document.getElementById('codex-launch-feedback').textContent='';
+    renderDesktopLaunch();
+  },6000);
+}
+async function openCodexDesktop(){
+  if(!desktopLaunchSupported||desktopLaunchPending)return;
+  desktopLaunchPending=true;desktopLaunchError=false;renderDesktopLaunch();
+  try{
+    const response=await fetch('/api/codex/open',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const result=await response.json();
+    if(!response.ok||result?.ok!==true){
+      desktopLaunchFeedback(DESKTOP_LAUNCH_ERRORS[result?.error]||DESKTOP_LAUNCH_ERRORS.launch_failed,true);
+      return;
+    }
+    desktopLaunchFeedback(result.state==='already_running'?'Codex is already running.':'Codex opened.');
+  }catch(_){desktopLaunchFeedback('Could not reach Kobashi. Please try again.',true);}
+  finally{desktopLaunchPending=false;renderDesktopLaunch();}
+}
 async function toggleCodex(){
   const r=await fetch('/api/toggle-codex',{method:'POST'});const d=await r.json();setToggle('codex',d.codexEnabled);
 }
@@ -429,13 +484,14 @@ function renderUsage(u){
   box.classList.remove('hidden');
 }
 fetch('/api/status').then(r=>r.json()).then(d=>{
+  setDesktopLaunchSupport(d.desktopLaunchSupported);
   // Footer version comes from the server (package.json / build stamp) so it can
   // never drift from the actual build the way the old hard-coded string did.
   if(d.version){var v=document.getElementById('ver');v.textContent='v'+d.version+(d.releaseDate?' · '+d.releaseDate:'')}
   if(d.connected){syncStatus(d);show('connected')}
   else show('idle');
 });
-setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{if(d.connected)syncStatus(d)}).catch(()=>{}),2000);
+setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{setDesktopLaunchSupport(d.desktopLaunchSupported);if(d.connected)syncStatus(d)}).catch(()=>{}),2000);
 setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 // Tell the bridge to shut down only when this window is GENUINELY closed. A tab
 // that Edge/Windows merely freezes in the background does not fire pagehide, so

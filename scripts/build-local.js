@@ -7,7 +7,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const { spawn, execFileSync } = require("node:child_process");
 
 const SOURCE_ENTRIES = ["package.json", "index.js", "lib", "assets", "macos", "scripts"];
-const RELEASE_FILES = { mac: "Kobashi.rar", win: "Kobashi.exe" };
+const RELEASE_FILES = { mac: "Kobashi.zip", win: "Kobashi.exe" };
 
 function within(file, directory) {
   const relative = path.relative(directory, file);

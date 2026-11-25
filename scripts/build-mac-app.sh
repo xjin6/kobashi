@@ -5,12 +5,6 @@ if [ "${KOBASHI_BUILD_STAGED:-}" != "1" ]; then
 fi
 cd "$(dirname "$0")/.."   # always run from repo root
 
-RAR_BIN="${KOBASHI_RAR_BIN:-rar}"
-if ! command -v "$RAR_BIN" > /dev/null 2>&1; then
-  echo "ERROR: Install the RAR command-line tool from rarlab.com or set KOBASHI_RAR_BIN to its absolute path." >&2
-  exit 1
-fi
-
 APP_NAME="Kobashi"
 BUNDLE_ID="com.xjin6.kobashi"
 # Single source of truth: package.json. Hard-coding it here as well is what let
@@ -148,12 +142,22 @@ cat > "${APP}/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
-echo "==> Packaging as RAR..."
-cd dist
-# The staged directory is disposable and starts without previous archives.
-"${RAR_BIN}" a -r -m5 "${APP_NAME}.rar" "${APP_NAME}.app"
-"${RAR_BIN}" t "${APP_NAME}.rar"
-cd ..
+echo "==> Verifying executable permissions and signing the assembled app..."
+chmod 755 "${APP}/Contents/MacOS/${BINARY}" \
+  "${APP}/Contents/Resources/bin/${BINARY}-arm64" \
+  "${APP}/Contents/Resources/bin/${BINARY}-x64"
+# Sign the completed local bundle, not only the compiler's standalone outputs.
+# This is an ad-hoc integrity signature, not Developer ID notarization.
+codesign --force --sign - "${APP}/Contents/Resources/bin/${BINARY}-arm64"
+codesign --force --sign - "${APP}/Contents/Resources/bin/${BINARY}-x64"
+codesign --force --sign - "$APP"
+codesign --verify --deep --strict "$APP"
+
+echo "==> Packaging as macOS ZIP..."
+# RAR extraction through The Unarchiver was observed dropping execute bits.
+# ditto preserves the app's Unix modes and macOS bundle metadata in ZIP.
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/${APP_NAME}.zip"
+node scripts/verify-mac-package.js "dist/${APP_NAME}.zip"
 
 echo ""
-echo "==> Built ${APP_NAME}.rar  ($(du -sh "dist/${APP_NAME}.rar" | cut -f1))"
+echo "==> Built ${APP_NAME}.zip  ($(du -sh "dist/${APP_NAME}.zip" | cut -f1))"

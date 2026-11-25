@@ -56,9 +56,9 @@ async function setup(t, options = {}) {
           const response = options.respond?.(requests.at(-1), requests.length) || {
             status: 200, body: { status: "completed", output: [] },
           };
-          const upstream = Readable.from([Buffer.from(JSON.stringify(response.body))]);
+          const upstream = Readable.from([Buffer.from(response.rawBody ?? JSON.stringify(response.body))]);
           upstream.statusCode = response.status;
-          upstream.headers = { "content-type": "application/json" };
+          upstream.headers = { "content-type": response.contentType || "application/json" };
           receive(upstream);
           done();
         },
@@ -192,4 +192,24 @@ test("runtime effort corrections update the same registry used by the picker", a
   assert.equal(response.status, 200); await response.json();
   assert.deepEqual(bridge.codexCapabilities.models()[0].capabilities.supports.reasoning_effort, ["low", "high"]);
   assert.equal(bridge.requests[1].body.reasoning.effort, "high");
+});
+
+test("stream decryption errors teach an agent-message fallback for the next client retry", async t => {
+  const failure = { type: "error", code: "invalid_request_body",
+    message: "Encrypted function output content could not be decrypted or decoded." };
+  const bridge = await setup(t, { respond: request => ({ status: 200, contentType: "text/event-stream",
+    rawBody: request.body.input[0].content.some(part => part.type === "encrypted_content")
+      ? `data: ${JSON.stringify({ type: "response.failed", response: { status: "failed" } })}\n\ndata: ${JSON.stringify(failure)}\n\n`
+      : 'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+  }) });
+  const body = { model: "gpt-5-mini", stream: true, input: [{ type: "agent_message",
+    author: "child", recipient: "parent", content: [{ type: "input_text", text: "Payload:\n" },
+      { type: "encrypted_content", encrypted_content: "opaque" }] }] };
+  assert.match(await (await bridge.post(body)).text(), /response.failed/);
+  assert.match(await (await bridge.post(body)).text(), /response.completed/);
+  assert.equal(bridge.requests.length, 2);
+  assert.equal(bridge.requests[1].body.input[0].content[0].text, "Payload:\n");
+  assert.match(bridge.requests[1].body.input[0].content[1].text, /unavailable/);
+  assert.equal(bridge.requests[1].headers["Content-Length"], bridge.requests[1].bytes.length);
+  assert.equal(bridge.counts().tokenRequests, 2, "decryption failure must not refresh authentication");
 });

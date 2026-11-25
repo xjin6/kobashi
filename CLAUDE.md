@@ -21,7 +21,7 @@ The same applies to Claude Desktop (`/Applications/Claude.app`) when it is the s
 
 Do the part that doesn't, then stop and hand off:
 
-> The new build is at `dist/Kobashi.rar`. To install it: quit Kobashi from its menu, extract the RAR outside the synced checkout, replace `/Applications/Kobashi.app`, and relaunch.
+> The new build is at `dist/Kobashi.zip`. To install it: quit Kobashi from its menu, extract the ZIP with macOS Archive Utility outside the synced checkout, replace `/Applications/Kobashi.app`, and relaunch.
 
 Editing files, building, and verifying logic against a copy are all fine — none of that needs the process down.
 
@@ -47,12 +47,12 @@ Migrated from the legacy `~/.codex/ccb-session.json`, which was wrong twice over
 ## Build
 
 ```bash
-npm run build:mac     # pkg + swiftc + rar → dist/Kobashi.rar
+npm run build:mac     # pkg + swiftc + codesign + ditto → dist/Kobashi.zip
 npm run build:win     # Git Bash on Windows → dist/Kobashi.exe
 ```
 
 Version comes from `package.json` only. Both scripts delegate to `scripts/build-local.js`, which stages the build sources and dependencies in a unique local temporary directory outside OneDrive. Version/date stamping via `/* BUILD_STAMP */` touches only that copy. The source checkout is never stamped. The temporary workspace is removed on success or failure.
 
-Only the finished `Kobashi.rar` / `Kobashi.exe` and `SHA256SUMS.txt` go back into `dist`. Keep all compiler output, `.app` bundles, temporary files, and intermediate binaries outside the synced checkout. `KOBASHI_BUILD_TMPDIR` can select another local scratch directory; it must not be inside OneDrive or the checkout. Do not bypass the staging wrapper. macOS packaging needs `rar` on PATH or an absolute `KOBASHI_RAR_BIN` path.
+Only the finished `Kobashi.zip` / `Kobashi.exe` and `SHA256SUMS.txt` go back into `dist`. Keep all compiler output, `.app` bundles, temporary files, and intermediate binaries outside the synced checkout. `KOBASHI_BUILD_TMPDIR` can select another local scratch directory; it must not be inside OneDrive or the checkout. Do not bypass the staging wrapper. macOS packaging uses the built-in `ditto`; no RAR utility is needed. Validate the extracted ZIP's three executable modes (755), architectures and complete bundle signature before publishing it. RAR extraction through The Unarchiver has been observed stripping execution permissions even when the archive stored them correctly.
 
 Extract installation archives outside the repository: `open -a Kobashi` matches by bundle id and can launch an unpacked build copy instead of the installed app.

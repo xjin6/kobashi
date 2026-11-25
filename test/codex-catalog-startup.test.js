@@ -19,9 +19,11 @@ function fixture(t, cached = false) {
   const pending = new Promise(resolve => { finish = () => { cached = true; resolve(); }; });
   const context = vm.createContext({
     ...configHelpers, fs, path, githubToken: "test", codexEnabled: true,
+    codexConfigured: false, codexConfigGeneration: 0,
     CODEX_DIR: dir, CODEX_AUTH: path.join(dir, "auth.json"), CODEX_CONFIG: file,
     CODEX_MODEL_CATALOG: path.join(dir, "catalog.json"), PROXY_PORT: 18921,
     process: { platform: "test" }, dbg() {}, log() {},
+    readCodexNativeAuthPreference: () => false,
     writeTextAtomic: (file, text) => fs.writeFileSync(file, text),
     codexCapabilities: { setAccount() {}, idle: () => pending },
     publishCodexModelCatalog: () => ({ catalogPath: path.join(dir, "catalog.json"),

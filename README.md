@@ -2,6 +2,11 @@
 
 Route Claude Code and OpenAI Codex through your GitHub Copilot subscription.
 
+The current source and macOS release version is **2.2.3**. The Windows download
+below remains the existing 2.1.6 release.
+Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
+and the assembled bundle signature checked again after extraction.
+
 Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/claude-code) and [OpenAI Codex](https://openai.com/index/introducing-gpt-5-3-codex/) use your existing GitHub Copilot subscription instead of separate Anthropic or OpenAI API keys.
 
 <p align="center">
@@ -14,21 +19,41 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.rar (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.rar)** | ~28 MB |
-| **Windows** | **[Kobashi.exe (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.exe)** | ~55 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.2.3)](https://github.com/xjin6/kobashi/releases/download/v2.2.3/Kobashi.zip)** | ~36 MB |
+| **Windows** | **[Kobashi.exe (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.exe)** | ~56 MB |
 
-On macOS, extract `Kobashi.rar` with a RAR-capable app such as The Unarchiver or
-Keka, then move `Kobashi.app` to Applications. On Windows, download and run
-`Kobashi.exe` directly. Kobashi itself needs no additional runtime installation.
+On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
+`Kobashi.app` to Applications. The troubleshooting note below applies to older
+RAR releases. On Windows,
+download and run `Kobashi.exe` directly. Kobashi itself needs no additional runtime
+installation.
 
-> **macOS first launch — "unidentified developer" warning**  
-> Kobashi isn't signed with an Apple Developer ID ($99/yr — not worth it for a free tool), so macOS Gatekeeper blocks the first launch. Drag `Kobashi.app` to `/Applications`, then run this **once** in Terminal to remove the quarantine flag:
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/Kobashi.app
-> ```
-> After that, double-click opens it normally — no warning, no trip through System Settings. (Alternative: right-click the app → **Open** → **Open** in the dialog — works but the `xattr` command is faster and sticks.)
+> **macOS first launch — developer verification**
+> Local builds have an ad-hoc integrity signature, not an Apple Developer ID or
+> notarization. If macOS asks you to approve the developer, review the source of
+> the download and use **System Settings → Privacy & Security → Open Anyway**
+> for this app. This is separate from missing executable permissions. The build
+> and repair scripts do not remove quarantine or disable Gatekeeper.
 >
 > **After connecting:** open a **new terminal window** before running `codex` or `claude` so the injected env vars are picked up.
+
+### “The application Kobashi can't be opened” after RAR extraction
+
+On one affected Mac, The Unarchiver extracted the wrapper and both embedded
+runtimes as `644` (not executable), although the RAR stored them as `755`.
+The same machine could run the earlier ZIP release. This failure occurs before
+Kobashi's bridge code starts. Use the current ZIP with macOS Archive Utility.
+For an existing trusted extraction, restore execution permission on only these
+three files, substituting the app's actual path:
+
+```sh
+chmod 755 /Applications/Kobashi.app/Contents/MacOS/kobashi \
+  /Applications/Kobashi.app/Contents/Resources/bin/kobashi-arm64 \
+  /Applications/Kobashi.app/Contents/Resources/bin/kobashi-x64
+```
+
+This fixes execution permissions, not developer approval. It does not modify
+program contents, credentials, history, or system security settings.
 
 ## How It Works
 
@@ -57,6 +82,75 @@ Windows and CLI launch behavior is unchanged.
 - **GitHub Copilot subscription** (Individual, Business, or Enterprise)
 - **Chrome, Edge, Brave, or Arc** for browser-based launches on Windows or via the CLI (falls back to default browser); the macOS app uses a native WebKit window
 - **Claude Code** or **OpenAI Codex** CLI / VS Code extension
+
+### Native ChatGPT login and Remote
+
+Kobashi preserves native ChatGPT account/workspace authentication by default,
+including on a new computer. Model requests continue through the local Kobashi
+endpoint to Copilot. Enable the bridge and click the existing Codex icon; no
+per-computer preference file or additional launcher is needed. If that computer
+has never signed in to ChatGPT, sign in through the official desktop once using
+its user's own account.
+
+The `kobashi` provider uses `requires_openai_auth = true` and no provider
+`env_key`. On upgrade, an exact legacy `PROXY_MANAGED` placeholder in `auth.json`
+is replaced with its native ChatGPT backup when available, or removed so the
+official login can proceed. The backup remains available for recovery. Existing
+native credentials, unrelated authentication files, and OS keychain settings
+are preserved. A missing live auth file is never repopulated from an old backup.
+Kobashi does not sign in for the user, grant Remote entitlement, or purchase a subscription.
+The gateway builds its own Copilot request headers; it does not forward incoming
+ChatGPT credentials to Copilot.
+
+Exiting Kobashi or disabling its Codex bridge restores the **previous provider
+configuration**, preserving other settings edited while the bridge was running.
+It leaves the ChatGPT login and conversation history intact. The next startup
+uses native account mode again. Existing open chats
+may require a desktop restart to adopt the restored provider. The previous
+provider's access and billing rules apply after restoration.
+
+The official ChatGPT desktop owns Remote and its backend. Keep that app running
+for phone access; the earlier independent shared-daemon/Python-adapter setup is
+unnecessary in this mode. For an intentional legacy API-key setup, the optional
+`~/.kobashi/codex-native-auth.json` can contain `{"enabled": false}`. An explicit
+opt-out is preserved across upgrades; removing that file restores the default.
+Change modes while client tasks are idle and the client is closed.
+
+The `Kobashi` label in ChatGPT's account menu is the provider display name from
+configuration. ChatGPT renders it using its own default menu layout. Kobashi
+does not inject or modify that menu.
+
+### Open Codex from the existing icon (macOS and Windows)
+
+With Kobashi connected and its Codex bridge enabled, click the existing Codex
+icon to open the official ChatGPT/Codex desktop. The icon occupies the same
+32 × 32 tile; no row or menu is added. The bridge switch remains independent.
+
+On macOS, each click reads the current manual HTTP/HTTPS/SOCKS proxy settings and
+passes matching upper- and lowercase environment variables through
+`open --env` to that application only. Native launches also clear inherited
+`OPENAI_API_KEY` and `OPENAI_BASE_URL` for that application so legacy bridge
+values do not affect the new launch. Loopback requests stay direct. It does
+not set global proxy variables, install a CLI shim, change the official app
+bundle, start a shared daemon, or switch the inference provider.
+
+If the desktop is already running, the click brings it forward. Its existing
+environment cannot be changed in place; quit it yourself and click the icon
+again when new proxy settings need to take effect. You can close the desktop
+normally and reopen it through this same icon later. Consecutive clicks share
+one pending launch, and the action never closes or restarts a running app.
+
+On Windows, the icon opens the registered Microsoft Store Codex desktop or an
+installed Codex desktop executable. Store launches use the Windows application
+identity and its normal environment, just like the Start menu. Standalone
+installations receive Kobashi's configured Codex home for that launch. Existing
+windows are activated, including minimized windows; the CLI on PATH is never
+used as a desktop launcher. Windows helpers run without a console window.
+
+An absent desktop, malformed/PAC-only macOS proxy configuration, or old
+shared backend produces a short tooltip on the icon instead of a new panel.
+The local API accepts only a same-origin, loopback `POST /api/codex/open` with
+an empty JSON object; no executable path or command comes from the request.
 
 ## Features
 
@@ -142,7 +236,7 @@ local temporary directory outside the checkout and OneDrive. Version stamping,
 compilation, icon generation, and packaging happen only in that copy. The copy
 is removed after success or failure; source files in the checkout are not stamped.
 
-After a successful build, only `dist/Kobashi.rar` (macOS) or `dist/Kobashi.exe`
+After a successful build, only `dist/Kobashi.zip` (macOS) or `dist/Kobashi.exe`
 (Windows) and `dist/SHA256SUMS.txt` are published back to the checkout. The existing
 package for the other platform is preserved. Failed builds leave the previous
 release files in place. No unpacked `.app`, intermediate binaries, or dated build
@@ -153,10 +247,11 @@ disk, set `KOBASHI_BUILD_TMPDIR` to a directory outside OneDrive and the checkou
 Cloud-backed temporary paths, including symlinks into OneDrive, are rejected.
 Local npm/pkg download caches are reused; cloud-backed cache overrides are
 redirected into the temporary workspace. The final package path is printed when
-the build completes. macOS packaging requires the RAR command-line tool from
-[RARLAB](https://www.rarlab.com/); put `rar` on PATH or set `KOBASHI_RAR_BIN` to its
-absolute path. The RAR compression tool is shareware; continued use requires a
-license under its terms. Download recipients only need a RAR-capable extractor.
+the build completes. macOS packaging uses built-in `ditto` to create a ZIP and
+extracts it into a disposable directory before publication. That check verifies
+the wrapper and both runtimes retain 755 permissions, the wrapper includes both
+CPU architectures, and the completed bundle's ad-hoc signature remains valid.
+No RAR utility is required. Open the ZIP with macOS Archive Utility.
 
 ## Development checks
 

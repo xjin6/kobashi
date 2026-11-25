@@ -6,6 +6,30 @@ function error(value, supported, param) {
   return { error: { message: `Unsupported value: '${value}' is not supported with the 'brand-new-model' model. Supported values are: ${supported.map(value => `'${value}'`).join(' and ')}.`, param } };
 }
 
+test("explicit agent ciphertext failure preserves plaintext and the original history", () => {
+  const agent = { type: "agent_message", author: "/root/child", recipient: "/root",
+    content: [{ type: "input_text", text: "Sender: child\nPayload:\n" },
+      { type: "encrypted_content", encrypted_content: "opaque-agent-payload" }] };
+  const reasoning = { type: "reasoning", encrypted_content: "opaque-reasoning" };
+  const user = { type: "message", role: "user", content: "Keep all project files" };
+  const body = { model: "future", input: [agent, reasoning, user] };
+  const snapshot = JSON.stringify(body);
+  assert.equal(normalizeCodexRequest(body).body, body);
+  const failure = { error: { code: "invalid_request_body",
+    message: "Encrypted function output content could not be decrypted or decoded." } };
+  const repaired = retryCodexRequest(body, failure);
+  assert.equal(repaired.body.input[0].author, agent.author);
+  assert.equal(repaired.body.input[0].recipient, agent.recipient);
+  assert.equal(repaired.body.input[0].content[0], agent.content[0]);
+  assert.match(repaired.body.input[0].content[1].text, /unavailable.*local transcript/);
+  assert.equal(repaired.body.input[1], reasoning);
+  assert.equal(repaired.body.input[2], user);
+  assert.equal(JSON.stringify(body), snapshot);
+  assert.deepEqual(normalizeCodexRequest(body, { constraints: repaired.constraints }).body, repaired.body);
+  assert.equal(retryCodexRequest({ input: [reasoning, user] }, failure).changes.length, 0);
+  assert.equal(retryCodexRequest(body, { error: { code: "other", message: failure.error.message } }).body, body);
+});
+
 test("any model learns context support from the server without model-name rules", () => {
   for (const model of ["gpt-5-mini", "gpt-5.3-codex", "gpt-future-unseen"]) {
     const body = { model, reasoning: { context: "all_turns", effort: "high" },

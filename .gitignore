@@ -9,3 +9,7 @@ ScreenShot_2026-05-31_035853_687.png
 preview-*.html
 index.js.pre-rename.bak
 .claude/launch.json
+.claude/settings.local.json
+
+# Machine-specific build provenance and local diagnostics
+output/

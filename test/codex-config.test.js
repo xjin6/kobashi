@@ -5,7 +5,31 @@ const {
   restoreCodexConfigContents,
   isKobashiManagedConfig,
   isKobashiManagedAuth,
+  parseCodexNativeAuthPreference,
 } = require("../lib/codex-config");
+
+test("ChatGPT authentication is an explicit option with the same Kobashi provider ID", () => {
+  const original = injectCodexConfig('cli_auth_credentials_store = "keyring"\n', 18921);
+  const native = injectCodexConfig(original, 18921, { chatgptAuth: true });
+  assert.match(native, /^model_provider = "kobashi"$/m);
+  assert.match(native, /^requires_openai_auth = true$/m);
+  assert.doesNotMatch(native, /^env_key\s*=/m);
+  assert.match(native, /^cli_auth_credentials_store = "keyring"$/m);
+  assert.equal(injectCodexConfig(native, 18921, { chatgptAuth: true }), native);
+  for (const option of [false, undefined, "true", 1]) {
+    const normal = injectCodexConfig(native, 18921, { chatgptAuth: option });
+    assert.match(normal, /^env_key = "OPENAI_API_KEY"$/m);
+    assert.doesNotMatch(normal, /^requires_openai_auth\s*=/m);
+  }
+});
+
+test("native auth preference accepts only an explicit boolean", () => {
+  assert.equal(parseCodexNativeAuthPreference('{"enabled":true}'), true);
+  assert.equal(parseCodexNativeAuthPreference('{"enabled":false}'), false);
+  for (const invalid of ["", "null", "[]", "true", "{}", '{"enabled":"true"}', '{"enabled":1}']) {
+    assert.throws(() => parseCodexNativeAuthPreference(invalid));
+  }
+});
 
 test("injects the Kobashi catalog without unsafe global context overrides", () => {
   const result = injectCodexConfig("[desktop]\nshow-context-window-usage = true\n", 18921, {

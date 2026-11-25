@@ -17,7 +17,7 @@ function fixture(t) {
   }
   fs.writeFileSync(path.join(sourceRoot, "index.js"), "/* BUILD_STAMP */");
   fs.writeFileSync(path.join(sourceRoot, "package.json"), '{"version":"2.1.6"}');
-  fs.writeFileSync(path.join(sourceRoot, "dist", "Kobashi.rar"), "old mac");
+  fs.writeFileSync(path.join(sourceRoot, "dist", "Kobashi.zip"), "old mac");
   fs.writeFileSync(path.join(sourceRoot, "dist", "Kobashi.exe"), "old win");
   fs.writeFileSync(path.join(sourceRoot, "dist", "SHA256SUMS.txt"), "old checksums");
   const tempRoot = path.join(root, "local temp");
@@ -25,7 +25,7 @@ function fixture(t) {
   return { root, sourceRoot, tempRoot, options };
 }
 
-for (const [target, name] of [["mac", "Kobashi.rar"], ["win", "Kobashi.exe"]]) {
+for (const [target, name] of [["mac", "Kobashi.zip"], ["win", "Kobashi.exe"]]) {
   test(`${target} builds in a local copy and publishes only the finished package and checksums`, async t => {
     const f = fixture(t);
     let staged;
@@ -48,7 +48,7 @@ for (const [target, name] of [["mac", "Kobashi.rar"], ["win", "Kobashi.exe"]]) {
     assert.equal(fs.readFileSync(path.join(f.sourceRoot, "node_modules", "fixture.txt"), "utf8"), "node_modules");
     assert.ok(!fs.existsSync(staged));
     assert.deepEqual(fs.readdirSync(path.join(f.sourceRoot, "dist")).sort(),
-      ["Kobashi.exe", "Kobashi.rar", "SHA256SUMS.txt", "fixture.txt"].sort());
+      ["Kobashi.exe", "Kobashi.zip", "SHA256SUMS.txt", "fixture.txt"].sort());
     for (const line of fs.readFileSync(path.join(f.sourceRoot, "dist", "SHA256SUMS.txt"), "utf8").trim().split("\n")) {
       const [hash, file] = line.split(/\s+/);
       assert.equal(hash, createHash("sha256").update(fs.readFileSync(path.join(f.sourceRoot, "dist", file))).digest("hex"));
@@ -66,7 +66,7 @@ test("failed builds leave existing releases untouched and remove their temporary
   } }), /compiler failed/);
   assert.ok(!fs.existsSync(staged));
   assert.equal(fs.readFileSync(path.join(f.sourceRoot, "index.js"), "utf8"), "/* BUILD_STAMP */");
-  assert.equal(fs.readFileSync(path.join(f.sourceRoot, "dist", "Kobashi.rar"), "utf8"), "old mac");
+  assert.equal(fs.readFileSync(path.join(f.sourceRoot, "dist", "Kobashi.zip"), "utf8"), "old mac");
   assert.equal(fs.readFileSync(path.join(f.sourceRoot, "dist", "SHA256SUMS.txt"), "utf8"), "old checksums");
 });
 
