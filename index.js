@@ -125,7 +125,6 @@ if (APP_VERSION === "0.0.0") {
 const PROXY_PORT = 18921;
 const UI_PORT = 18922;
 const CLAUDE_PORT = 18923;
-const CLAUDE_MODEL = "claude-sonnet-4.6";
 
 // ─── System proxy detection ────────────────────────────────────────────────
 // Detect the OS-level proxy and route upstream Copilot requests through it, so
@@ -785,6 +784,37 @@ function restoreCodexConfig() {
 }
 
 // ─── Claude config (~/.claude/settings.json) ───────────────────────────────
+const { createClaudeDesktopConfig } = require("./lib/claude-desktop-config");
+const { buildClaudeRoutes } = require("./lib/claude-routes");
+const { createClaudeGateway } = require("./lib/claude-gateway");
+const claudeDesktop = createClaudeDesktopConfig();
+let claudeConfigGeneration = 0, claudeGatewayKey = null;
+let claudeDesktopPublished = false, claudeDesktopCatalog = null;
+
+function publishClaudeDesktop(routes) {
+  const models = routes?.slice(0, 200).map(({ id, name, supports1m, behavesAs, maxEffort }) =>
+    ({ id, name, supports1m, behavesAs, maxEffort }));
+  const snapshot = JSON.stringify(models);
+  if (claudeDesktopPublished && snapshot === claudeDesktopCatalog) return;
+  try {
+    if (!claudeGatewayKey) {
+      const keyPath = path.join(KOBASHI_DIR, "claude-gateway-key");
+      fs.mkdirSync(KOBASHI_DIR, { recursive: true, mode: 0o700 });
+      if (!fs.existsSync(keyPath)) {
+        const key = require("node:crypto").randomBytes(32).toString("hex");
+        try { fs.writeFileSync(keyPath, key, { flag: "wx", mode: 0o600 }); }
+        catch (error) { if (error.code !== "EEXIST") throw error; }
+      }
+      claudeGatewayKey = fs.readFileSync(keyPath, "utf8").trim();
+      if (!claudeGatewayKey) throw new Error("Empty Claude Desktop gateway key");
+    }
+    claudeDesktop.apply({ baseUrl: `http://127.0.0.1:${CLAUDE_PORT}/claude-desktop`,
+      token: claudeGatewayKey, models, refreshOnly: claudeDesktopPublished });
+    claudeDesktopPublished = true;
+    claudeDesktopCatalog = snapshot;
+  } catch (error) { log("[Claude] Could not update the Desktop gateway profile:", error.message); }
+}
+
 const CLAUDE_DIR = path.join(process.env.HOME || process.env.USERPROFILE, ".claude");
 const CLAUDE_SETTINGS = path.join(CLAUDE_DIR, "settings.json");
 
@@ -802,7 +832,11 @@ const CLAUDE_MODEL_ENV_KEYS = [
   "ANTHROPIC_CUSTOM_HEADERS",
 ];
 
-function writeClaudeConfig() {
+async function writeClaudeConfig() {
+  const generation = ++claudeConfigGeneration;
+  const account = githubToken;
+  claudeDesktopPublished = false;
+  claudeDesktopCatalog = null;
   fs.mkdirSync(CLAUDE_DIR, { recursive: true });
   // Refresh .bak whenever the live settings.json is NOT a kobashi-managed state
   // (i.e. some other tool — cc-switch, the user, etc. — has written to it since
@@ -835,10 +869,21 @@ function writeClaudeConfig() {
   for (const k of CLAUDE_MODEL_ENV_KEYS) delete settings.env[k];
 
   fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(settings, null, 2));
+  try { await getCopilotClaudeModelsRaw(); }
+  catch (error) {
+    if (generation !== claudeConfigGeneration || !claudeEnabled || !account || account !== githubToken) return;
+    log("[Claude] Model discovery unavailable:", error.message);
+    publishClaudeDesktop();
+  }
   log("[Bridge] Claude config injected");
 }
 
 function restoreClaudeConfig() {
+  claudeConfigGeneration++;
+  claudeDesktopPublished = false;
+  claudeDesktopCatalog = null;
+  try { claudeDesktop.restore(); }
+  catch (error) { log("[Claude] Could not restore the Desktop gateway profile:", error.message); }
   if (fs.existsSync(CLAUDE_SETTINGS + ".bak")) {
     fs.copyFileSync(CLAUDE_SETTINGS + ".bak", CLAUDE_SETTINGS);
     fs.unlinkSync(CLAUDE_SETTINGS + ".bak");
@@ -920,7 +965,7 @@ async function loadSession() {
     authMethod = data.authMethod === "token" ? "token" : "device";
     await ensureCopilotToken();
     if (codexEnabled) await writeCodexConfig();
-    if (claudeEnabled) writeClaudeConfig();
+    if (claudeEnabled) await writeClaudeConfig();
     log("[Bridge] Session restored for", username);
     return true;
   } catch (e) {
@@ -1207,75 +1252,11 @@ async function getCopilotModelsRaw(options = {}) {
 }
 
 async function getCopilotClaudeModelsRaw() {
-  return (await getCopilotModelsRaw()).filter(model => /claude/i.test(model.id || ""));
-}
-
-// Convert a Copilot model id (e.g. "claude-sonnet-4.6", "claude-opus-4.6-1m") to
-// the id format Claude Code extension uses (dashes, "[1m]" suffix).
-//   claude-sonnet-4.6       → claude-sonnet-4-6
-//   claude-opus-4.6-1m      → claude-opus-4-6[1m]
-//   claude-sonnet-4         → claude-sonnet-4
-function copilotIdToClaudeCodeId(id) {
-  let m = id;
-  const oneM = /-1m$/i.test(m);
-  if (oneM) m = m.replace(/-1m$/i, "");
-  m = m.replace(/(\d+)\.(\d+)/, "$1-$2");
-  return oneM ? `${m}[1m]` : m;
-}
-
-// Build the list of Claude-Code-facing models from Copilot's raw list.
-// For each Copilot model that doesn't already have a 1m sibling, also synthesise
-// a "[1m]" variant so Claude Code's picker sees it (Copilot routes them to the
-// 200k version — we still forward; worst case the caller's big context is truncated).
-async function getClaudeCodeFacingModels() {
-  const raw = await getCopilotClaudeModelsRaw();
-  const byCopilotId = new Map(raw.map(m => [m.id, m]));
-  const out = [];
-  const seen = new Set();
-  for (const m of raw) {
-    const cc = copilotIdToClaudeCodeId(m.id);
-    if (seen.has(cc)) continue;
-    seen.add(cc);
-    out.push({ id: cc, name: m.name || m.id, _copilot: m.id });
-  }
-  // Removed: no longer synthesise fake [1m] variants.
-  // Only expose models Copilot actually provides — what you pick is what gets sent.
-  // For true 1M context, select a model Copilot natively offers (e.g. claude-opus-4.6-1m).
-  return out;
-}
-
-// Maps a Claude Code–style model id to the Copilot id to send upstream.
-async function mapClaudeModel(requested) {
-  if (!requested) return CLAUDE_MODEL;
-  const list = await getClaudeCodeFacingModels();
-  const hit = list.find(m => m.id === requested);
-  if (hit) return hit._copilot;
-  // Fallback: normalise dash→dot and retry directly against Copilot ids
-  const raw = await getCopilotClaudeModelsRaw();
-  const copilotIds = raw.map(m => m.id);
-  if (copilotIds.includes(requested)) return requested;
-  const stripped = requested.replace(/\[1m\]$/i, "");
-  const dotted = stripped.replace(/^(claude-[a-z]+-\d+)-(\d+)(.*)$/, "$1.$2$3");
-  if (copilotIds.includes(`${dotted}-1m`) && /\[1m\]$/i.test(requested)) return `${dotted}-1m`;
-  if (copilotIds.includes(dotted)) return dotted;
-  // Family best-match
-  const fam = (requested.match(/claude-(sonnet|opus|haiku)/) || [])[1];
-  if (fam) {
-    const family = copilotIds.filter(id => id.includes(fam));
-    if (family.length) {
-      family.sort((a, b) => {
-        const na = (a.match(/(\d+(?:\.\d+)?)/g) || []).map(Number);
-        const nb = (b.match(/(\d+(?:\.\d+)?)/g) || []).map(Number);
-        for (let i = 0; i < Math.max(na.length, nb.length); i++) {
-          const x = na[i] || 0, y = nb[i] || 0;
-          if (x !== y) return y - x;
-        }
-        return 0;
-      });
-      return family[0];
-    }
-  }
-  return CLAUDE_MODEL;
+  const generation = claudeConfigGeneration;
+  const account = githubToken;
+  const models = buildClaudeRoutes(await getCopilotModelsRaw());
+  if (claudeEnabled && account && account === githubToken && generation === claudeConfigGeneration) publishClaudeDesktop(models);
+  return models;
 }
 
 // ─── Codex proxy server (OpenAI passthrough) ──────────────────────────────
@@ -1485,623 +1466,26 @@ const proxy = http.createServer(async (req, res) => {
   } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
 });
 
-// ─── Anthropic ↔ OpenAI translation ────────────────────────────────────────
-function anthropicToOpenAI(req) {
-  const messages = [];
-  if (req.system) {
-    const sysText = typeof req.system === "string"
-      ? req.system
-      : req.system.map(b => b.text || "").join("\n");
-    messages.push({ role: "system", content: sysText });
-  }
-  for (const m of req.messages || []) {
-    if (typeof m.content === "string") {
-      messages.push({ role: m.role, content: m.content });
-      continue;
-    }
-    // Content blocks: text, tool_use, tool_result, image
-    const contentParts = [];     // multimodal parts (text + image_url) for this message
-    const toolCalls = [];
-    const toolResults = [];
-    const deferredImages = [];    // images pulled out of tool_result, re-attached below
-
-    // Anthropic image block → OpenAI image_url part. Supports base64 and url sources.
-    const toImagePart = (src) => {
-      if (!src) return null;
-      if (src.type === "base64" && src.data)
-        return { type: "image_url", image_url: { url: `data:${src.media_type || "image/png"};base64,${src.data}` } };
-      if (src.type === "url" && src.url)
-        return { type: "image_url", image_url: { url: src.url } };
-      return null;
-    };
-
-    for (const b of m.content || []) {
-      if (b.type === "text") contentParts.push({ type: "text", text: b.text || "" });
-      else if (b.type === "thinking" || b.type === "redacted_thinking") {
-        // Anthropic thinking blocks. OpenAI's chat/completions has no equivalent
-        // field on an INBOUND assistant message — reasoning_text only ever comes
-        // back FROM the model — so these used to be dropped on the floor.
-        //
-        // That silently broke interruption. When a turn is stopped mid-flight,
-        // Claude Code keeps the partial assistant turn in history, and a lot of
-        // "what I was in the middle of doing" lives in the thinking block. Drop
-        // it and the replayed history looks like a turn that simply finished, so
-        // the model happily carries on with the old task instead of noticing it
-        // was cut off and following the new instruction.
-        //
-        // Folding the text into the assistant message is the closest thing this
-        // wire format allows. redacted_thinking carries no readable text (it is
-        // an encrypted blob), so it only leaves a marker — enough for the model
-        // to see that a reasoning step happened and was cut short.
-        if (b.type === "redacted_thinking") {
-          contentParts.push({ type: "text", text: "[reasoning redacted]" });
-        } else if (b.thinking) {
-          contentParts.push({ type: "text", text: `[reasoning]\n${b.thinking}` });
-        }
-      }
-      else if (b.type === "image") {
-        const p = toImagePart(b.source);
-        if (p) contentParts.push(p);
-      } else if (b.type === "document") {
-        // Anthropic 'document' blocks (e.g. Claude Code reading a PDF). The Copilot
-        // chat/completions endpoint REJECTS pdf parts (verified: 400 "Could not
-        // process image" / "type has to be image_url or text"), so we can't pass
-        // them through. Degrade loudly: surface any caller-provided plaintext, else
-        // a clear placeholder, so the turn doesn't 400 and the model knows why.
-        const src = b.source || {};
-        if (src.type === "text" && src.data) {
-          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""}]\n${src.data}` });
-        } else if (src.type === "content" && Array.isArray(src.content)) {
-          const t = src.content.filter(x => x.type === "text").map(x => x.text || "").join("\n");
-          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""}]\n${t}` });
-        } else {
-          contentParts.push({ type: "text", text: `[document${b.title ? " " + b.title : ""} omitted — this backend cannot accept binary PDFs; ask the user to paste the relevant text]` });
-        }
-      } else if (b.type === "tool_use") {
-        toolCalls.push({
-          id: b.id, type: "function",
-          function: { name: b.name, arguments: JSON.stringify(b.input || {}) }
-        });
-      } else if (b.type === "tool_result") {
-        const blocks = typeof b.content === "string"
-          ? [{ type: "text", text: b.content }]
-          : (b.content || []);
-        const textChunks = [];
-        for (const x of blocks) {
-          if (x.type === "image") {
-            const p = toImagePart(x.source);
-            if (p) deferredImages.push(p);
-          } else {
-            textChunks.push(x.text || "");
-          }
-        }
-        let rc = textChunks.join("\n");
-        if (!rc && deferredImages.length) rc = "[image returned by tool — see attached image below]";
-        // OpenAI tool messages have no is_error flag, so fold Anthropic's error
-        // signal into the text — otherwise the model can't tell a tool failed.
-        if (b.is_error) rc = `[tool error] ${rc}`;
-        toolResults.push({ role: "tool", tool_call_id: b.tool_use_id, content: rc });
-      }
-    }
-    if (toolResults.length) {
-      for (const tr of toolResults) messages.push(tr);
-      // OpenAI tool-role messages can't carry images, so any image a tool returned
-      // (e.g. Read on a screenshot) is re-attached as a follow-up user message —
-      // this is what lets vision models actually see tool-produced images.
-      if (deferredImages.length) messages.push({ role: "user", content: deferredImages });
-      continue;
-    }
-    const msg = { role: m.role };
-    const hasImage = contentParts.some(p => p.type === "image_url");
-    if (hasImage) {
-      msg.content = contentParts;            // keep multimodal array so the image survives
-    } else {
-      const text = contentParts.map(p => p.text).join("\n");
-      if (text) msg.content = text;
-    }
-    if (toolCalls.length) { msg.tool_calls = toolCalls; if (!msg.content) msg.content = null; }
-    messages.push(msg);
-  }
-
-  const out = {
-    model: req.model || CLAUDE_MODEL,
-    messages,
-    stream: !!req.stream,
-  };
-  // Ask the upstream to include token usage in the streaming response, otherwise
-  // streamed turns report input_tokens:0 and Claude Code's context meter is blind.
-  if (req.stream) out.stream_options = { include_usage: true };
-  if (req.max_tokens) out.max_tokens = req.max_tokens;
-  if (req.temperature !== undefined) out.temperature = req.temperature;
-  if (req.top_p !== undefined) out.top_p = req.top_p;
-  if (req.stop_sequences) out.stop = req.stop_sequences;
-  if (req.metadata && req.metadata.user_id) out.user = req.metadata.user_id;
-  // Effort slider → reasoning_effort. Claude Code (post effort-2025-11-24 beta)
-  // sends the slider as a STRING in output_config.effort ("low"/"medium"/"high"/
-  // "xhigh"; ultracode collapses to "xhigh" internally). thinking is separately
-  // {type:"adaptive"} with NO budget_tokens — so the old budget-based mapping
-  // never fired and the slider had zero effect over this bridge. We now read
-  // output_config.effort directly and pass it through FAITHFULLY.
-  //
-  // Copilot's reasoning_effort accepts low/medium/high/xhigh/max (verified live:
-  // those return 200; extra_high/ultracode/minimal return 400). So we forward the
-  // slider value as-is when it's an accepted tier — every notch maps 1:1, honouring
-  // the user's exact choice. Only genuinely-unknown values are coerced to a safe
-  // neighbour so they never 400. Older clients that still send thinking.budget_tokens
-  // fall through to the numeric bucket below.
-  const COPILOT_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
-  const ocEffort = req.output_config && typeof req.output_config.effort === "string"
-    ? req.output_config.effort.toLowerCase() : null;
-  if (ocEffort) {
-    // ultracode isn't a Copilot value; Claude Code already collapses it to xhigh,
-    // but guard anyway. Unknown strings fall back to "high" so they never 400.
-    const mapped = COPILOT_EFFORTS.has(ocEffort) ? ocEffort
-      : ocEffort === "ultracode" ? "xhigh"
-      : ocEffort === "extra_high" ? "xhigh"
-      : "high";
-    out.reasoning_effort = mapped;
-    lastEffort = { source: "output_config.effort", requested: ocEffort, effort: mapped, passthrough: mapped === ocEffort, at: Date.now() };
-    dbg(`[Claude] effort: output_config.effort="${ocEffort}" → reasoning_effort="${mapped}"`);
-  } else if (req.thinking && req.thinking.type === "enabled") {
-    // Legacy path: older clients encode effort as thinking.budget_tokens.
-    let b = req.thinking.budget_tokens;
-    if (typeof b === "string") b = parseInt(b, 10);
-    if (typeof b === "number" && !isNaN(b)) {
-      out.reasoning_effort = b <= 4096 ? "low" : b <= 9000 ? "medium" : b <= 16000 ? "high" : "max";
-      lastEffort = { source: "thinking.budget_tokens", budgetTokens: b, effort: out.reasoning_effort, at: Date.now() };
-      dbg(`[Claude] effort: budget_tokens=${b} → reasoning_effort=${out.reasoning_effort}`);
-    } else {
-      lastEffort = { source: "thinking.budget_tokens", budgetTokens: null, effort: "(enabled but no numeric budget)", at: Date.now(), raw: JSON.stringify(req.thinking) };
-    }
-  } else {
-    lastEffort = { source: "none", effort: "(no effort/thinking sent)", at: Date.now(), raw: JSON.stringify(req.thinking) };
-  }
-  if (req.tools) {
-    out.tools = req.tools.map(t => ({
-      type: "function",
-      function: { name: t.name, description: t.description, parameters: t.input_schema }
-    }));
-  }
-  // Anthropic tool_choice → OpenAI tool_choice. Without this, Claude Code's
-  // "force this tool" / "must use a tool" semantics were silently lost and the
-  // model was free to answer in prose instead of calling the tool it was told to.
-  // Verified upstream: Copilot honors "auto" / "required" / "none" / {function}.
-  if (req.tool_choice && typeof req.tool_choice === "object") {
-    const tc = req.tool_choice;
-    if (tc.type === "auto") out.tool_choice = "auto";
-    else if (tc.type === "any") out.tool_choice = "required";
-    else if (tc.type === "none") out.tool_choice = "none";
-    else if (tc.type === "tool" && tc.name)
-      out.tool_choice = { type: "function", function: { name: tc.name } };
-    if (tc.disable_parallel_tool_use) out.parallel_tool_calls = false;
-  }
-  return out;
-}
-
-function openAIToAnthropicResponse(oai, model) {
-  const choice = (oai.choices || [{}])[0];
-  const msg = choice.message || {};
-  const content = [];
-  // Reasoning (Copilot streams/returns the model's chain-of-thought as
-  // reasoning_text, with an opaque signature in reasoning_opaque). Emit it as a
-  // proper Anthropic thinking block FIRST so it renders as the model's thinking.
-  if (msg.reasoning_text) {
-    const tb = { type: "thinking", thinking: msg.reasoning_text };
-    if (msg.reasoning_opaque) tb.signature = msg.reasoning_opaque;
-    content.push(tb);
-  }
-  if (msg.content) content.push({ type: "text", text: msg.content });
-  if (msg.tool_calls) {
-    for (const tc of msg.tool_calls) {
-      let input = {};
-      try { input = JSON.parse(tc.function.arguments || "{}"); } catch {}
-      content.push({ type: "tool_use", id: tc.id, name: tc.function.name, input });
-    }
-  }
-  const stopReasonMap = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use", content_filter: "end_turn" };
-  return {
-    id: oai.id || `msg_${Date.now()}`,
-    type: "message",
-    role: "assistant",
-    model,
-    content,
-    stop_reason: stopReasonMap[choice.finish_reason] || "end_turn",
-    stop_sequence: null,
-    usage: {
-      input_tokens: (oai.usage && oai.usage.prompt_tokens) || 0,
-      output_tokens: (oai.usage && oai.usage.completion_tokens) || 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    },
-  };
-}
-
-// Rough input-token estimate from an Anthropic request body. Copilot only
-// reports usage at the END of a stream, but Claude Code reads
-// message_start.usage.input_tokens to draw its context-window ring the moment a
-// turn begins. Seeding message_start with this estimate makes the ring appear
-// (and stay roughly accurate); the exact count from upstream corrects it at the
-// end. Shared with the /count_tokens endpoint so both agree.
-//
-// Divisor: measured against real Copilot prompt_tokens on live payloads —
-// 104ch→44tok, 9010ch→3613tok, 142010ch→70013tok — i.e. ~2.0–2.5 chars/token
-// for Claude Code traffic (o200k_base on prose + JSON tool schemas). The old
-// char/4 under-counted by ~40–50%, so the ring read half-empty and Claude Code
-// mistimed auto-compaction. 2.5 hugs the real counts without over-counting.
-function estimateInputTokens(body) {
-  let chars = 0;
-  if (typeof body.system === "string") chars += body.system.length;
-  else if (Array.isArray(body.system)) chars += body.system.reduce((n, b) => n + (b.text || "").length, 0);
-  if (Array.isArray(body.tools)) {
-    for (const t of body.tools) {
-      chars += (t.name || "").length + (t.description || "").length;
-      if (t.input_schema) chars += JSON.stringify(t.input_schema).length;
-    }
-  }
-  for (const m of body.messages || []) {
-    if (typeof m.content === "string") chars += m.content.length;
-    else for (const b of m.content || []) {
-      if (b.type === "text") chars += (b.text || "").length;
-      else if (b.type === "image") chars += 4000;
-      else if (b.type === "tool_use") chars += JSON.stringify(b.input || {}).length + (b.name || "").length;
-      else if (b.type === "tool_result") chars += (typeof b.content === "string" ? b.content : JSON.stringify(b.content || "")).length;
-    }
-  }
-  return Math.max(1, Math.ceil(chars / 2.5));
-}
-
-// SSE translator: parses OpenAI delta stream and emits Anthropic events
-function makeStreamTranslator(model, write, estInputTokens) {
-  const msgId = `msg_${Date.now()}`;
-  let started = false;
-  // Dynamic block-index allocator. Anthropic requires content blocks to be
-  // indexed in the order they are opened. A response may contain a thinking
-  // block, then text, then one or more tool_use blocks — so we can no longer
-  // hardcode text=0. Whatever opens first gets the next free index.
-  let nextIndex = 0;
-  let thinkingIndex = -1, thinkingOpen = false, sigSent = false, pendingSig = null;
-  let textIndex = -1, textBlockOpen = false;
-  let toolBlocks = {}; // openai tool index -> { anthIndex, id, name, jsonBuf }
-  let inputTokens = estInputTokens || 0, outputTokens = 0;
-  let stopReason = "end_turn";
-  let buffer = "";
-
-  function send(event, data) {
-    write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  }
-
-  function ensureStart() {
-    if (started) return;
-    started = true;
-    send("message_start", {
-      type: "message_start",
-      message: {
-        id: msgId, type: "message", role: "assistant", model,
-        content: [], stop_reason: null, stop_sequence: null,
-        // cache_* fields must be present (even as 0): Claude Code's context-ring
-        // math sums input+cache_creation+cache_read with NO null-guard, so a
-        // missing field makes the sum NaN and the ring silently fails to render.
-        usage: { input_tokens: estInputTokens || 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      },
-    });
-  }
-
-  // Thinking must be fully emitted and closed before any text/tool block opens,
-  // because Anthropic blocks can't interleave. When text or a tool arrives we
-  // first flush the signature (if upstream gave one) and stop the thinking block.
-  function closeThinking() {
-    if (!thinkingOpen) return;
-    if (pendingSig && !sigSent) {
-      send("content_block_delta", { type: "content_block_delta", index: thinkingIndex, delta: { type: "signature_delta", signature: pendingSig } });
-      sigSent = true;
-    }
-    send("content_block_stop", { type: "content_block_stop", index: thinkingIndex });
-    thinkingOpen = false;
-  }
-
-  function closeOpenBlocks() {
-    closeThinking();
-    if (textBlockOpen) {
-      send("content_block_stop", { type: "content_block_stop", index: textIndex });
-      textBlockOpen = false;
-    }
-    for (const k of Object.keys(toolBlocks)) {
-      send("content_block_stop", { type: "content_block_stop", index: toolBlocks[k].anthIndex });
-    }
-    toolBlocks = {};
-  }
-
-  return {
-    feed(chunk) {
-      buffer += chunk.toString("utf-8");
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        let evt;
-        try { evt = JSON.parse(data); } catch { continue; }
-        ensureStart();
-        const delta = (evt.choices && evt.choices[0] && evt.choices[0].delta) || {};
-        const finish = evt.choices && evt.choices[0] && evt.choices[0].finish_reason;
-        if (evt.usage) {
-          inputTokens = evt.usage.prompt_tokens || inputTokens;
-          outputTokens = evt.usage.completion_tokens || outputTokens;
-        }
-
-        // ── Reasoning / thinking deltas (Copilot: delta.reasoning_text) ──
-        if (delta.reasoning_text) {
-          if (!thinkingOpen) {
-            thinkingIndex = nextIndex++;
-            thinkingOpen = true;
-            send("content_block_start", { type: "content_block_start", index: thinkingIndex, content_block: { type: "thinking", thinking: "", signature: "" } });
-          }
-          send("content_block_delta", { type: "content_block_delta", index: thinkingIndex, delta: { type: "thinking_delta", thinking: delta.reasoning_text } });
-        }
-        // Opaque thinking signature arrives once; emit it when we close the block.
-        if (delta.reasoning_opaque) pendingSig = delta.reasoning_opaque;
-
-        // ── Text deltas ──
-        if (delta.content) {
-          closeThinking();
-          if (!textBlockOpen) {
-            textIndex = nextIndex++;
-            textBlockOpen = true;
-            send("content_block_start", { type: "content_block_start", index: textIndex, content_block: { type: "text", text: "" } });
-          }
-          send("content_block_delta", { type: "content_block_delta", index: textIndex, delta: { type: "text_delta", text: delta.content } });
-        }
-
-        // ── Tool-call deltas ──
-        if (delta.tool_calls) {
-          closeThinking();
-          for (const tc of delta.tool_calls) {
-            const key = tc.index !== undefined ? tc.index : 0;
-            if (!toolBlocks[key]) {
-              const anthIndex = nextIndex++;
-              toolBlocks[key] = { anthIndex, id: tc.id || `tool_${anthIndex}`, name: (tc.function && tc.function.name) || "", jsonBuf: "" };
-              send("content_block_start", {
-                type: "content_block_start", index: anthIndex,
-                content_block: { type: "tool_use", id: toolBlocks[key].id, name: toolBlocks[key].name, input: {} },
-              });
-            }
-            const block = toolBlocks[key];
-            if (tc.id) block.id = tc.id;
-            if (tc.function && tc.function.name) block.name = tc.function.name;
-            if (tc.function && tc.function.arguments) {
-              block.jsonBuf += tc.function.arguments;
-              send("content_block_delta", {
-                type: "content_block_delta", index: block.anthIndex,
-                delta: { type: "input_json_delta", partial_json: tc.function.arguments },
-              });
-            }
-          }
-        }
-        if (finish) {
-          const map = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use", content_filter: "end_turn" };
-          stopReason = map[finish] || "end_turn";
-        }
-      }
-    },
-    // NOTE: there is deliberately no "aborted" branch here. When the user
-    // interrupts, Claude Code closes the socket first, so res.on("close") has
-    // already set finished=true and end() never runs — and even if it did, the
-    // bytes would go to a closed socket. The interruption is therefore recorded
-    // entirely on the CLIENT side; what matters for the next turn is that the
-    // partial assistant turn it saved (thinking blocks included) survives the
-    // translation back to OpenAI, which is what the thinking-block handling in
-    // anthropicToOpenAI() now does.
-    end() {
-      ensureStart();
-      closeOpenBlocks();
-      send("message_delta", {
-        type: "message_delta",
-        delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { input_tokens: inputTokens, output_tokens: outputTokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      });
-      send("message_stop", { type: "message_stop" });
-    },
-  };
-}
-
-// ─── Claude proxy server (Anthropic → OpenAI translation) ─────────────────
-const claudeProxy = http.createServer(async (req, res) => {
-  dbg(`[Claude] ← ${req.method} ${req.url}`);
-  if (!githubToken || !claudeEnabled) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "Claude bridge not active" } }));
-    return;
-  }
-  // POST /v1/messages/count_tokens — best-effort token count (rough estimate)
-  if (req.method === "POST" && req.url.replace(/\?.*$/, "").endsWith("/v1/messages/count_tokens")) {
-    const chunks = [];
-    for await (const c of req) chunks.push(c);
-    let body = {};
-    try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch {}
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ input_tokens: estimateInputTokens(body) }));
-    return;
-  }
-  // GET /v1/models — list available Claude models in Claude-Code-compatible ids
-  if (req.method === "GET" && (req.url === "/v1/models" || req.url.startsWith("/v1/models?"))) {
-    try {
-      const models = await getClaudeCodeFacingModels();
-      const now = new Date().toISOString();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        data: models.map(m => ({
-          type: "model",
-          id: m.id,
-          display_name: m.name,
-          created_at: now,
-        })),
-        has_more: false,
-        first_id: models[0]?.id || null,
-        last_id: models[models.length - 1]?.id || null,
-      }));
-    } catch (e) {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } }));
-    }
-    return;
-  }
-
-  if (!req.url.endsWith("/v1/messages") && req.url !== "/v1/messages" && !req.url.startsWith("/v1/messages?")) {
-    dbg(`[Claude] 404 ${req.method} ${req.url}`);
-    res.writeHead(404); res.end(JSON.stringify({ error: "Not found", path: req.url })); return;
-  }
-
-  const bodyChunks = [];
-  for await (const chunk of req) bodyChunks.push(chunk);
-  const rawBody = Buffer.concat(bodyChunks).toString();
-  dbg(`[Claude] /v1/messages body head: ${rawBody.slice(0, 300)}`);
-  let anthropicReq;
-  try { anthropicReq = JSON.parse(rawBody); }
-  catch (e) { res.writeHead(400); res.end(JSON.stringify({ error: "Invalid JSON" })); return; }
-
-  const isStream = !!anthropicReq.stream;
-  const oaiReq = anthropicToOpenAI(anthropicReq);
-  // Remap the requested model to one Copilot actually exposes
-  const requestedModel = oaiReq.model; // what Claude Code asked for, before mapping
-  try {
-    const mapped = await mapClaudeModel(oaiReq.model);
-    if (mapped !== oaiReq.model) dbg(`[Claude] model ${oaiReq.model} → ${mapped}`);
-    oaiReq.model = mapped;
-  } catch (e) {
-    dbg("[Claude] model list fetch failed, using default:", e.message);
-    oaiReq.model = CLAUDE_MODEL;
-  }
-  const model = oaiReq.model;
-
-  // The UI no longer displays the mapping, but a silent downgrade still deserves
-  // a line in the log: asking for a [1m] context and quietly getting the 200k one
-  // is exactly the kind of thing someone needs to be able to find afterwards.
-  {
-    const askedFor1m = /\[1m\]$/i.test(requestedModel || "") || /-1m\b/i.test(requestedModel || "");
-    const sent1m = /-1m\b/i.test(model || "");
-    if (askedFor1m && !sent1m) log(`[Claude] ⚠ ${requestedModel} → ${model} (no 1M on Copilot, downgraded to 200K)`);
-    else dbg(`[Claude] mapped ${requestedModel} → ${model}`);
-  }
-
-  try {
-    // Copilot tokens live only ~30 min. When one goes stale mid-session the API
-    // answers 401 — or 400 "Not a valid API key for this workspace" — and the
-    // request fails in the user's face. Wrap the upstream call so that on those
-    // two statuses we drop the cached token, mint a fresh one and replay the
-    // request ONCE. Nothing has been written to the client at that point (the
-    // error body is only emitted after the upstream response completes), so the
-    // replay is safe for both streaming and non-streaming turns.
-    const sendUpstream = async (attempt) => {
-    const token = await ensureCopilotToken();
-    const upstream = await upstreamHttpsRequest({
-      hostname: COPILOT_API, path: "/chat/completions", method: "POST",
-      headers: {
-        "Content-Type": "application/json", Authorization: `Bearer ${token}`,
-        "Editor-Version": "vscode/1.110.1", "Editor-Plugin-Version": "copilot-chat/0.38.2",
-        "User-Agent": "GitHubCopilotChat/0.38.2", "Copilot-Integration-Id": "vscode-chat",
-        "X-GitHub-Api-Version": "2025-10-01",
-        "Accept": isStream ? "text/event-stream" : "application/json",
-      },
-    }, (upstreamRes) => {
-      dbg(`[Claude] upstream model=${model} status=${upstreamRes.statusCode} stream=${isStream}`);
-      if (upstreamRes.statusCode !== 200) {
-        // An expired/invalid Copilot token comes back as 401 OR as 400 with
-        // "Not a valid API key for this workspace" — Copilot uses both. Only
-        // clearing on 401 left the dead token cached, so every later request
-        // kept failing until the bridge was restarted ("works, then suddenly
-        // 400 forever").
-        //
-        // 401 is unambiguous: clear + replay immediately. A 400 is NOT — bad
-        // model ids, oversized payloads and malformed requests are 400 too, and
-        // replaying those just doubles the latency and can bury the real error.
-        // So for 400 we read the body first and only replay when it actually
-        // reads as an auth failure.
-        if (upstreamRes.statusCode === 401 && attempt === 0) {
-          upstreamRes.resume(); // drain, we're replaying instead of surfacing this
-          copilotToken = null; copilotTokenExpiry = 0;
-          log(`[Claude] token rejected (401) — refreshing and retrying once`);
-          sendUpstream(1).catch(e => {
-            try { res.writeHead(502, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } })); } catch {}
-          });
-          return;
-        }
-        if (upstreamRes.statusCode === 401) { copilotToken = null; copilotTokenExpiry = 0; }
-        const errChunks = [];
-        upstreamRes.on("data", d => errChunks.push(d));
-        upstreamRes.on("end", () => {
-          const raw = Buffer.concat(errChunks).toString();
-          dbg(`[Claude] upstream error body: ${raw.slice(0, 500)}`);
-          // Auth-flavoured 400: drop the dead token and replay once.
-          if (upstreamRes.statusCode === 400 && attempt === 0 && isAuthFailureBody(raw)) {
-            copilotToken = null; copilotTokenExpiry = 0;
-            log(`[Claude] token rejected (400) — refreshing and retrying once`);
-            sendUpstream(1).catch(e => {
-              try { res.writeHead(502, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: e.message } })); } catch {}
-            });
-            return;
-          }
-          // Translate Copilot/OpenAI error shape → Anthropic error shape so Claude
-          // Code surfaces the real upstream message instead of a generic "model may
-          // not exist" string.
-          let anthErr;
-          try {
-            const j = JSON.parse(raw);
-            const msg = (j.error && (j.error.message || j.message)) || j.message || raw;
-            const typeMap = { 400: "invalid_request_error", 401: "authentication_error", 403: "permission_error", 404: "not_found_error", 429: "rate_limit_error" };
-            anthErr = { type: "error", error: { type: typeMap[upstreamRes.statusCode] || "api_error", message: msg } };
-          } catch {
-            anthErr = { type: "error", error: { type: "api_error", message: raw || `upstream ${upstreamRes.statusCode}` } };
-          }
-          res.writeHead(upstreamRes.statusCode, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(anthErr));
-        });
-        return;
-      }
-      if (isStream) {
-        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" });
-        const trans = makeStreamTranslator(model, c => res.write(c), estimateInputTokens(anthropicReq));
-        let finished = false;
-        // Close the SSE stream exactly once, always leaving Claude Code with a
-        // well-formed message_delta + message_stop. Without this, a mid-stream
-        // upstream drop (idle timeout, proxy/NAT reset, network blip on a long
-        // "thinking" turn) leaves the response dangling and the client reports
-        // "Connection closed mid-response."
-        const finish = () => {
-          if (finished) return;
-          finished = true;
-          try { trans.end(); } catch {}
-          try { res.end(); } catch {}
-        };
-        upstreamRes.on("data", d => trans.feed(d));
-        upstreamRes.on("end", finish);
-        upstreamRes.on("error", (e) => { dbg(`[Claude] upstream stream error: ${e.message}`); finish(); });
-        upstreamRes.on("aborted", () => { dbg("[Claude] upstream stream aborted"); finish(); });
-        // If Claude Code hangs up first, tear down the upstream so the socket
-        // isn't leaked and no further writes hit a closed response.
-        res.on("close", () => { finished = true; try { upstreamRes.destroy(); } catch {} });
-      } else {
-        const chunks = [];
-        upstreamRes.on("data", d => chunks.push(d));
-        upstreamRes.on("end", () => {
-          let oaiResp;
-          try { oaiResp = JSON.parse(Buffer.concat(chunks).toString()); }
-          catch { res.writeHead(502); res.end(JSON.stringify({ error: "Bad upstream JSON" })); return; }
-          const anthResp = openAIToAnthropicResponse(oaiResp, model);
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(anthResp));
-        });
-      }
-    });
-    upstream.on("error", e => { try { res.writeHead(502); res.end(JSON.stringify({ error: e.message })); } catch {} });
-    upstream.write(JSON.stringify(oaiReq));
-    upstream.end();
-    };
-    await sendUpstream(0);
-  } catch (e) { try { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); } catch {} }
-});
+// ─── Anthropic ↔ OpenAI translation and Claude gateway ────────────────────
+const claudeProxy = http.createServer(createClaudeGateway({
+  active: () => githubToken && claudeEnabled && claudeConfigGeneration && [claudeConfigGeneration, copilotModelsGeneration].join("/"),
+  gatewayToken: () => claudeGatewayKey,
+  routes: getCopilotClaudeModelsRaw,
+  hostname: COPILOT_API,
+  request: upstreamHttpsRequest,
+  token: ensureCopilotToken,
+  invalidateToken: rejected => {
+    if (copilotToken === rejected) { copilotToken = null; copilotTokenExpiry = 0; }
+  },
+  isAuthFailure: isAuthFailureBody,
+  onRequest: (body, route, payload) => {
+    const effort = payload.reasoning?.effort ?? payload.reasoning_effort ?? payload.output_config?.effort;
+    const requested = body.output_config?.effort;
+    lastEffort = { source: requested ? "output_config.effort" : body.thinking?.type || "none",
+      requested, effort: effort || "(model default)", passthrough: !!requested && requested === effort, at: Date.now() };
+    dbg(`[Claude] ${body.model} → ${route.model.id} (${route.path})`);
+  },
+}));
 
 // ─── UI server ─────────────────────────────────────────────────────────────
 const codexDesktopLauncher = createCodexDesktopLauncher({
@@ -2136,7 +1520,7 @@ const ui = http.createServer(async (req, res) => {
       codexEnabled = true;
       claudeEnabled = true;
       await writeCodexConfig();
-      writeClaudeConfig();
+      await writeClaudeConfig();
       saveSession();
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ access_token: githubToken, username }));
     } else {
@@ -2171,7 +1555,7 @@ const ui = http.createServer(async (req, res) => {
     codexEnabled = true;
     claudeEnabled = true;
     await writeCodexConfig();
-    writeClaudeConfig();
+    await writeClaudeConfig();
     saveSession();
     log("[Bridge] Signed in via pasted token as", username);
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -2220,7 +1604,7 @@ const ui = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/toggle-claude") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
     claudeEnabled = !claudeEnabled;
-    if (claudeEnabled) writeClaudeConfig(); else restoreClaudeConfig();
+    if (claudeEnabled) await writeClaudeConfig(); else restoreClaudeConfig();
     saveSession();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ claudeEnabled })); return;
   }
@@ -2311,7 +1695,7 @@ const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
 });
 testReq.on("error", () => {
   proxy.listen(PROXY_PORT, () => log(`[Bridge] Codex proxy on http://127.0.0.1:${PROXY_PORT}`));
-  claudeProxy.listen(CLAUDE_PORT, () => log(`[Bridge] Claude proxy on http://127.0.0.1:${CLAUDE_PORT}`));
+  claudeProxy.listen(CLAUDE_PORT, "127.0.0.1", () => log(`[Bridge] Claude proxy on http://127.0.0.1:${CLAUDE_PORT}`));
   ui.listen(UI_PORT, async () => {
     log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
     await loadSession();
