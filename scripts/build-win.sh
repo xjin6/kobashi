@@ -24,15 +24,20 @@ echo "==> Stamped v${VERSION} (${RELEASE_DATE})"
 
 echo "==> Building Windows binary..."
 mkdir -p dist
-npx @yao-pkg/pkg . --targets node22-win-x64 --output "dist/${BINARY}.exe"
+# This manifest is the staged copy, never the working checkout.
+node -e "const fs=require('fs'),p=require('./package.json');p.bin='scripts/windows-entry.js';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+npx @yao-pkg/pkg . --targets node22-win-x64 --output "dist/${BINARY}.exe" --no-bytecode --public
 
 # Set custom icon (extract pkg payload, rcedit, restore payload)
 echo "==> Setting icon..."
-node scripts/set-icon.js "dist/${BINARY}.exe" assets/kobashi-icon.ico
+node scripts/set-icon.js "dist/${BINARY}.exe" assets/kobashi-icon.ico "$VERSION"
 
 # Change PE subsystem from Console (3) to GUI (2) — no black window on launch
 echo "==> Setting GUI subsystem (no console window)..."
 node -e "const fs=require('fs'),e='dist/${BINARY}.exe',b=fs.readFileSync(e),p=b.readUInt32LE(0x3C);b.writeUInt16LE(2,p+0x5C);fs.writeFileSync(e,b)"
+
+echo "==> Verifying the packaged native-account runtime..."
+node scripts/verify-win-package.js "dist/${BINARY}.exe" "$VERSION"
 
 echo ""
 echo "==> Built ${BINARY}.exe  ($(du -sh "dist/${BINARY}.exe" | cut -f1))"

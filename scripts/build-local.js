@@ -88,6 +88,25 @@ function runScript(script, workspace, env) {
 
 function sha256(file) { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); }
 
+function sourceSnapshot(root) {
+  const files = {};
+  function visit(relative) {
+    const full = path.join(root, relative);
+    if (fs.statSync(full).isDirectory()) {
+      for (const name of fs.readdirSync(full).sort()) visit(relative + "/" + name);
+    } else files[relative] = sha256(full);
+  }
+  for (const entry of SOURCE_ENTRIES) visit(entry);
+  return files;
+}
+
+function assertSourcesMatch(before, after) {
+  const names = new Set([...Object.keys(before), ...Object.keys(after)]);
+  if ([...names].some(name => before[name] !== after[name])) {
+    throw new Error("Source changed during packaging; rebuild before publishing the release.");
+  }
+}
+
 function publishRelease(sourceRoot, workspace, name) {
   const built = path.join(workspace, "dist", name);
   if (!fs.statSync(built).isFile() || fs.statSync(built).size === 0) throw new Error(`Missing release file: ${name}`);
@@ -124,7 +143,9 @@ async function buildLocal(target, { sourceRoot = path.resolve(__dirname, ".."), 
   const workspace = fs.mkdtempSync(path.join(tempRoot, "kobashi-build-"));
   try {
     log(`==> Local build workspace: ${workspace}`);
+    const sources = sourceSnapshot(sourceRoot);
     copySource(sourceRoot, workspace);
+    assertSourcesMatch(sources, sourceSnapshot(workspace));
     const scratch = path.join(workspace, "tmp");
     fs.mkdirSync(scratch);
     const childEnv = { ...env, KOBASHI_BUILD_STAGED: "1", TMPDIR: scratch.replace(/\\/g, "/"), TMP: scratch, TEMP: scratch };
@@ -136,12 +157,24 @@ async function buildLocal(target, { sourceRoot = path.resolve(__dirname, ".."), 
     }
     delete childEnv.NPM_CONFIG_CACHE;
     await run(`scripts/build-${target === "mac" ? "mac-app" : "win"}.sh`, workspace, childEnv);
+    assertSourcesMatch(sources, sourceSnapshot(sourceRoot));
     const output = publishRelease(sourceRoot, workspace, RELEASE_FILES[target]);
+    const provenance = path.join(sourceRoot, "output", `last-${target === "win" ? "windows" : "mac"}-build.json`);
+    fs.mkdirSync(path.dirname(provenance), { recursive: true });
+    fs.writeFileSync(provenance, JSON.stringify({
+      product: "Kobashi", version: JSON.parse(fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8")).version,
+      target, createdUTC: new Date().toISOString(), file: output, sha256: sha256(output),
+      bytes: fs.statSync(output).size, sources, sourceUnchangedDuringBuild: true,
+    }, null, 2) + "\n");
     log(`Done! ${output}`);
     return output;
   } finally {
     // This is exactly the unique directory created above, never the temp root.
-    fs.rmSync(workspace, { recursive: true, force: true });
+    const resolved = fs.realpathSync(workspace);
+    if (path.dirname(resolved) !== fs.realpathSync(tempRoot) || !path.basename(resolved).startsWith("kobashi-build-")) {
+      throw new Error("Unexpected build cleanup path");
+    }
+    await fs.promises.rm(resolved, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

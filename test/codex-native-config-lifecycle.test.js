@@ -267,3 +267,26 @@ test("failed configuration cannot launch a desktop using a stale readiness flag"
   await assert.rejects(f.context.writeCodexConfig(), { code: "EACCES" });
   assert.equal(f.launchReady(), false);
 });
+
+test("a malformed preference clears previous readiness and invalidates pending initialization", async () => {
+  const f = fixture();
+  await f.context.writeCodexConfig();
+  assert.equal(f.launchReady(), true);
+  f.files.set(f.preferencePath, '{"enabled":"invalid"}');
+  await assert.rejects(f.context.writeCodexConfig());
+  assert.equal(f.launchReady(), false);
+
+  f.files.delete(f.preferencePath);
+  f.files.set(f.authPath, legacyAuth);
+  f.files.set(f.authPath + ".bak", nativeBackup);
+  let finish;
+  f.context.publishCodexModelCatalog = () => ({ catalogPath: "/fixture/catalog.json", catalog: { models: [] } });
+  f.context.ensureCodexModelSession = () => new Promise(resolve => { finish = resolve; });
+  const pending = f.context.writeCodexConfig();
+  await new Promise(setImmediate);
+  f.files.set(f.preferencePath, '{malformed');
+  await assert.rejects(f.context.writeCodexConfig());
+  finish(); await pending;
+  assert.equal(f.files.get(f.authPath), legacyAuth);
+  assert.equal(f.launchReady(), false);
+});

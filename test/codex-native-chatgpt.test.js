@@ -23,7 +23,7 @@ function certificate(root) {
     ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=127.0.0.1", "-keyout", local("leaf.key"), "-out", local("leaf.csr")],
     ["x509", "-req", "-in", local("leaf.csr"), "-CA", local("ca.pem"), "-CAkey", local("ca.key"), "-CAcreateserial", "-days", "1",
       "-extfile", local("leaf.ext"), "-out", local("leaf.pem")],
-  ]) execFileSync("openssl", args, { stdio: "ignore" });
+  ]) execFileSync("openssl", args, { stdio: "ignore", windowsHide: true });
   return { cert: fs.readFileSync(local("leaf.pem")), key: fs.readFileSync(local("leaf.key")), ca: local("ca.pem") };
 }
 
@@ -50,7 +50,9 @@ test(`${scenario} native account state supports Kobashi`, {
     for (const server of [modelServer, controlServer]) if (server?.listening) {
       await new Promise(resolve => { server.closeAllConnections(); server.close(resolve); });
     }
-    fs.rmSync(root, { recursive: true, force: true });
+    assert.equal(path.dirname(root), fs.realpathSync(os.tmpdir()));
+    assert.ok(path.basename(root).startsWith("kobashi-native-chatgpt-"));
+    await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   const keys = certificate(root), requests = [];
   let controlOrigin;
@@ -120,7 +122,7 @@ test(`${scenario} native account state supports Kobashi`, {
   // bridge sentinels cannot replace the restored account or provider route.
   if (legacyUpgrade) Object.assign(env, { OPENAI_API_KEY: "PROXY_MANAGED",
     OPENAI_BASE_URL: "http://127.0.0.1:1/v1" });
-  child = spawn(executable, ["app-server", "--stdio"], { cwd: root, env, stdio: ["pipe", "pipe", "pipe"] });
+  child = spawn(executable, ["app-server", "--stdio"], { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let buffer = "", sequence = 0, errorLog = "";
   const pending = new Map(), turns = new Map();
   child.stderr.on("data", bytes => { errorLog = (errorLog + bytes).slice(-8000); });

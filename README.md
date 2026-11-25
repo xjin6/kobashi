@@ -2,10 +2,12 @@
 
 Route Claude Code and OpenAI Codex through your GitHub Copilot subscription.
 
-The current source and macOS release version is **2.2.3**. The Windows download
-below remains the existing 2.1.6 release.
+The current source and Windows release version is **2.2.4**. The latest macOS
+package is **2.2.3**. Use the platform-specific, versioned downloads below.
 Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
 and the assembled bundle signature checked again after extraction.
+Windows builds verify the packaged native-account runtime and asset hashes,
+and record their source snapshot in `output/last-windows-build.json`.
 
 Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/claude-code) and [OpenAI Codex](https://openai.com/index/introducing-gpt-5-3-codex/) use your existing GitHub Copilot subscription instead of separate Anthropic or OpenAI API keys.
 
@@ -20,7 +22,7 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 | Platform | Download | Size |
 |----------|----------|------|
 | **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.2.3)](https://github.com/xjin6/kobashi/releases/download/v2.2.3/Kobashi.zip)** | ~36 MB |
-| **Windows** | **[Kobashi.exe (v2.1.6)](https://github.com/xjin6/kobashi/releases/download/v2.1.6/Kobashi.exe)** | ~56 MB |
+| **Windows** | **[Kobashi.exe (v2.2.4)](https://github.com/xjin6/kobashi/releases/download/v2.2.4/Kobashi.exe)** | ~56 MB |
 
 On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
 `Kobashi.app` to Applications. The troubleshooting note below applies to older

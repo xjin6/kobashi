@@ -80,6 +80,18 @@ test("an empty build product cannot replace the previous release", async t => {
   assert.deepEqual(fs.readdirSync(f.tempRoot), []);
 });
 
+test("source edits during packaging block publication and preserve the user's edits", async t => {
+  const f = fixture(t);
+  await assert.rejects(buildLocal("win", { ...f.options, run: async (_script, workspace) => {
+    fs.mkdirSync(path.join(workspace, "dist"));
+    fs.writeFileSync(path.join(workspace, "dist", "Kobashi.exe"), "stale staged build");
+    fs.writeFileSync(path.join(f.sourceRoot, "lib", "new-runtime.js"), "user's new source");
+  } }), /Source changed during packaging/);
+  assert.equal(fs.readFileSync(path.join(f.sourceRoot, "dist", "Kobashi.exe"), "utf8"), "old win");
+  assert.equal(fs.readFileSync(path.join(f.sourceRoot, "lib", "new-runtime.js"), "utf8"), "user's new source");
+  assert.deepEqual(fs.readdirSync(f.tempRoot), []);
+});
+
 test("temporary paths inside the checkout, OneDrive, or cloud symlinks are rejected", t => {
   const f = fixture(t);
   for (const directory of [path.join(f.sourceRoot, "tmp"), path.join(f.root, "OneDrive", "scratch"),

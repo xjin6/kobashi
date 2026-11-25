@@ -7,6 +7,7 @@ const path = require("path");
 
 const exe = process.argv[2];
 const ico = process.argv[3];
+const version = process.argv[4];
 if (!exe || !ico) { console.error("Usage: node set-icon.js <exe> <ico>"); process.exit(1); }
 
 const buf = fs.readFileSync(exe);
@@ -54,7 +55,19 @@ ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
   iconFile.icons.map(i => i.data),
 );
 
-resource.outputResource(exeBin);
+if (version) {
+  const info = ResEdit.Resource.VersionInfo.create({ lang: 1033,
+    fixedInfo: { fileOS: 0x40004, fileType: 1 },
+    strings: [{ lang: 1033, codepage: 1200, values: {
+      FileDescription: "Kobashi", InternalName: "Kobashi", OriginalFilename: "Kobashi.exe", ProductName: "Kobashi",
+    } }],
+  });
+  info.setFileVersion(version, 1033);
+  info.setProductVersion(version, 1033);
+  resource.entries = resource.entries.filter(entry => entry.type !== 16);
+  info.outputToResourceEntries(resource.entries);
+}
+resource.outputResource(exeBin, true, false);
 const newPeBuf = Buffer.from(exeBin.generate());
 fs.unlinkSync(exeTmp);
 
@@ -63,6 +76,7 @@ console.log(`New PE size:      ${newPeBuf.length}`);
 // Re-append payload at original offset. Pad if PE shrank so the payload's
 // absolute offset matches what pkg stamped into the binary.
 const newPeEnd = peEndOf(newPeBuf);
+if (newPeEnd > peEnd) throw new Error("Windows resources grew beyond the original pkg payload offset");
 console.log(`New PE image ends at: ${newPeEnd}`);
 const padding = Buffer.alloc(Math.max(0, peEnd - newPeEnd), 0);
 console.log(`Padding: ${padding.length} bytes to match original offset ${peEnd}`);

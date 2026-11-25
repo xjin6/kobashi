@@ -598,10 +598,11 @@ function startCodexClientWatch() {
 }
 
 async function writeCodexConfig() {
-  const account = githubToken;
-  const chatgptAuth = readCodexNativeAuthPreference();
+  // Invalidate an older initialization even if reading the new preference fails.
   const configurationGeneration = ++codexConfigGeneration;
   codexConfigured = false;
+  const account = githubToken;
+  const chatgptAuth = readCodexNativeAuthPreference();
   fs.mkdirSync(CODEX_DIR, { recursive: true });
 
   if (!chatgptAuth) {

@@ -75,11 +75,24 @@ async function setup(t, options = {}) {
     requests, codexCapabilities,
     counts: () => ({ tokenRequests, refreshes }),
     getModels: () => fetch(`${base}/v1/models`),
-    post: body => fetch(`${base}/v1/responses`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    post: (body, headers = {}) => fetch(`${base}/v1/responses`, {
+      method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
     }),
   };
 }
+
+test("native account credentials and identity headers never reach the Copilot upstream", async t => {
+  const bridge = await setup(t);
+  const response = await bridge.post({ model: "gpt-5-mini", input: "fixture" }, {
+    Authorization: "Bearer fixture-native-account", "ChatGPT-Account-Id": "fixture-account",
+    "OpenAI-Organization": "fixture-org", "OpenAI-Project": "fixture-project",
+  });
+  assert.equal(response.status, 200); await response.json();
+  assert.equal(bridge.requests.length, 1);
+  assert.equal(bridge.requests[0].headers.Authorization, "Bearer test-only");
+  const sent = Object.keys(bridge.requests[0].headers).map(key => key.toLowerCase());
+  for (const header of ["chatgpt-account-id", "openai-organization", "openai-project"]) assert.equal(sent.includes(header), false);
+});
 
 test("proxy applies verified context support and forwards correct bytes without retrying", async t => {
   const bridge = await setup(t, { constraints: { "reasoning.context": ["auto", "current_turn"] } });
