@@ -2,8 +2,7 @@
 
 Route Claude Code and OpenAI Codex through your GitHub Copilot subscription.
 
-The current source and Windows release version is **2.2.4**. The latest macOS
-package is **2.2.3**. Use the platform-specific, versioned downloads below.
+Kobashi **2.3.0** is available for macOS and Windows.
 Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
 and the assembled bundle signature checked again after extraction.
 Windows builds verify the packaged native-account runtime and asset hashes,
@@ -21,8 +20,8 @@ Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/clau
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.2.3)](https://github.com/xjin6/kobashi/releases/download/v2.2.3/Kobashi.zip)** | ~36 MB |
-| **Windows** | **[Kobashi.exe (v2.2.4)](https://github.com/xjin6/kobashi/releases/download/v2.2.4/Kobashi.exe)** | ~56 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.3.0)](https://github.com/xjin6/kobashi/releases/download/v2.3.0/Kobashi.zip)** | ~36 MB |
+| **Windows x64** | **[Kobashi.exe (v2.3.0)](https://github.com/xjin6/kobashi/releases/download/v2.3.0/Kobashi.exe)** | ~56 MB |
 
 On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
 `Kobashi.app` to Applications. The troubleshooting note below applies to older
@@ -159,6 +158,7 @@ an empty JSON object; no executable path or command comes from the request.
 - One-click GitHub OAuth device flow authentication
 - Automatic Copilot token acquisition and refresh
 - **Claude Bridge** — exposes an Anthropic-compatible API; remaps Claude Code's model IDs (e.g. `claude-opus-4-7`, `claude-sonnet-4-6[1m]`) to whatever Copilot actually supports; translates streaming + tool-use between Anthropic and OpenAI formats
+- **Claude Code WebSearch** uses Copilot's hosted web search and returns its source links to the native tool. If the selected model needs a search helper, Kobashi sends just the search query and its constraints to an eligible Responses model on the same account. The main conversation continues on the selected model. These searches use your Copilot subscription.
 - **Codex Bridge** — transparent passthrough proxy with an account-aware live OpenAI model picker, online capability checks on Codex startup, and safe 1M context defaults for models that support it
 - Auto-injects configs (`~/.claude/settings.json`, `~/.codex/auth.json` + `config.toml`) and restores them on disconnect
 - Auto-detects system HTTP(S) proxy — routes only Bridge's upstream traffic through it, leaving other apps untouched
