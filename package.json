@@ -1,7 +1,7 @@
 {
   "name": "kobashi",
-  "version": "2.3.0",
-  "description": "Route Claude Code and OpenAI Codex through your GitHub Copilot subscription",
+  "version": "2.4.0",
+  "description": "Route Claude Code, OpenAI Codex and Grok Build through your GitHub Copilot subscription",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
@@ -9,6 +9,8 @@
     "test:mac": "node scripts/macos-lifecycle-check.js",
     "test:mac:smoke": "node scripts/macos-lifecycle-check.js --smoke",
     "start": "node index.js",
+    "grok:serve": "node index.js --grok-only",
+    "grok:desktop": "node scripts/grok-desktop.js",
     "build:mac": "bash scripts/build-mac-app.sh",
     "build:win": "bash scripts/build-win.sh"
   },

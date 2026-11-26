@@ -85,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func createWindow() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 576),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false
         )
@@ -104,7 +104,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let label = NSTextField(labelWithString: "Starting Kobashi…")
         label.alignment = .center
         label.textColor = .secondaryLabelColor
-        label.frame = NSRect(x: 0, y: 270, width: 400, height: 24)
+        let bounds = webView.bounds
+        label.frame = NSRect(x: 0, y: bounds.midY - 12, width: bounds.width, height: 24)
         label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
         label.tag = 999
         window.contentView!.addSubview(label)

@@ -1,27 +1,27 @@
 # Kobashi
 
-Route Claude Code and OpenAI Codex through your GitHub Copilot subscription.
+Route Claude Code, OpenAI Codex and Grok Build through your GitHub Copilot subscription.
 
-Kobashi **2.3.0** is available for macOS and Windows.
+Kobashi **2.4.0** is available for macOS and Windows.
 Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
 and the assembled bundle signature checked again after extraction.
 Windows builds verify the packaged native-account runtime and asset hashes,
 and record their source snapshot in `output/last-windows-build.json`.
 
-Kobashi is a local bridge that lets [Claude Code](https://www.anthropic.com/claude-code) and [OpenAI Codex](https://openai.com/index/introducing-gpt-5-3-codex/) use your existing GitHub Copilot subscription instead of separate Anthropic or OpenAI API keys.
+Kobashi is a local bridge for Claude Code, OpenAI Codex and Grok Build. It routes supported model requests through your existing GitHub Copilot subscription.
 
 <p align="center">
-  <img src="assets/light.png?v=3" width="380" alt="Kobashi — light mode">
+  <img src="assets/light.png?v=2.4.0" width="380" alt="Kobashi v2.4.0 — light mode with demo account">
   &nbsp;&nbsp;
-  <img src="assets/dark.png?v=2" width="380" alt="Kobashi — dark mode">
+  <img src="assets/dark.png?v=2.4.0" width="380" alt="Kobashi v2.4.0 — dark mode with demo account">
 </p>
 
 ## Download
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.3.0)](https://github.com/xjin6/kobashi/releases/download/v2.3.0/Kobashi.zip)** | ~36 MB |
-| **Windows x64** | **[Kobashi.exe (v2.3.0)](https://github.com/xjin6/kobashi/releases/download/v2.3.0/Kobashi.exe)** | ~56 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.4.0)](https://github.com/xjin6/kobashi/releases/download/v2.4.0/Kobashi.zip)** | ~36 MB |
+| **Windows x64** | **[Kobashi.exe (v2.4.0)](https://github.com/xjin6/kobashi/releases/download/v2.4.0/Kobashi.exe)** | ~56 MB |
 
 On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
 `Kobashi.app` to Applications. The troubleshooting note below applies to older
@@ -60,7 +60,7 @@ program contents, credentials, history, or system security settings.
 
 1. **Double-click** the app — a native window opens on macOS; Windows uses a browser app window
 2. **Connect with GitHub** — authorize via GitHub device flow
-3. **Toggle the bridges** — enable Claude Bridge and/or Codex Bridge
+3. **Toggle the bridges** — enable the bridges you want to use
 4. **Use them normally** — Kobashi auto-configures `~/.claude/settings.json` and `~/.codex/` to route API calls through the local proxy
 
 The bridge intercepts API requests on localhost and forwards them to the GitHub Copilot API using your Copilot token. It manages token refresh, config injection, cleanup, and Anthropic↔OpenAI format translation automatically.
@@ -74,8 +74,14 @@ Closing and reopening the window does not restart the bridges.
 
 To stop Kobashi, use **Cmd-Q**, **Kobashi > Quit Kobashi**, or **Dock > Quit**.
 Quitting stops the bridge process and runs its existing configuration cleanup.
-This does not add login startup or prevent macOS from sleeping. The browser-based
-Windows and CLI launch behavior is unchanged.
+
+### Windows dashboard window
+
+Kobashi opens the dashboard in an Edge, Chrome, or Brave app window with a
+dedicated browser profile. On launch or when reopening Kobashi, it restores the
+dashboard to a 400 × 576 logical-pixel content area, limited by the monitor's
+available work area. If a compatible browser is unavailable, the default browser
+opens the page and the dashboard stays compact inside that tab.
 
 ## Requirements
 
@@ -121,6 +127,12 @@ The `Kobashi` label in ChatGPT's account menu is the provider display name from
 configuration. ChatGPT renders it using its own default menu layout. Kobashi
 does not inject or modify that menu.
 
+### Open Claude Desktop (macOS and Windows)
+
+Click the Claude icon to open Claude Desktop or bring its existing window
+forward. It uses the normal desktop launch and works with Claude Bridge
+active or paused. The switch controls routing independently.
+
 ### Open Codex from the existing icon (macOS and Windows)
 
 With Kobashi connected and its Codex bridge enabled, click the existing Codex
@@ -152,6 +164,45 @@ An absent desktop, malformed/PAC-only macOS proxy configuration, or old
 shared backend produces a short tooltip on the icon instead of a new panel.
 The local API accepts only a same-origin, loopback `POST /api/codex/open` with
 an empty JSON object; no executable path or command comes from the request.
+
+### Grok App and GitHub Copilot
+
+On macOS, enable **Grok Bridge** in Kobashi and click the **Grok icon** on
+that card. Kobashi prepares the private desktop profile on first launch and
+opens Grok App with its desktop and CLI homes. Choose the model and reasoning
+effort in Grok's composer. Subsequent clicks bring the same window forward.
+If a Grok instance is already open and Kobashi cannot verify its profile,
+quit Grok normally and click the icon again.
+
+Opening Grok directly from Finder uses its usual profile. The icon sets
+`GROK_APP_HOME` and `GROK_HOME` for the launched app, including its background
+title process. Kobashi refreshes its model settings before a new launch and
+reuses existing chats in `~/.kobashi/grok-desktop`.
+
+The icon uses the dashboard's own local gateway at
+`http://127.0.0.1:18922/grok/v1`. It lists the connected GitHub Copilot account's enabled xAI Grok
+models. Each generation must name an exact model from that list and use its
+advertised Responses or Chat Completions protocol. The desktop receives a
+local gateway key. Kobashi holds the GitHub credential and authenticates its
+own upstream requests.
+
+The **Grok Bridge** switch pauses or enables requests, and Kobashi remembers
+its setting across restarts. Grok App's official services, including voice
+and Imagine, use their own connections.
+
+For a standalone trial from the source checkout, the following commands start
+the separate listener at `http://127.0.0.1:18924/v1` and prepare a new
+profile. Run the second command in a separate terminal.
+
+```sh
+npm run grok:serve
+```
+
+```sh
+npm run grok:desktop -- --prepare "$HOME/.kobashi/grok-desktop-standalone"
+```
+
+Quit any open Grok App and run the launch command printed by the helper.
 
 ## Features
 

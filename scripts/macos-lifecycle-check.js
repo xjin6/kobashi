@@ -31,7 +31,7 @@ try {
   fs.writeFileSync(main, source.slice(0, source.indexOf(entryPoint)) + "\n" + harness);
   for (const [command, args] of [
     ["/usr/bin/xcrun", ["--toolchain", "XcodeDefault", "swiftc", "-framework", "Cocoa", "-framework", "WebKit", main, "-o", executable]],
-    [executable, []],
+    [executable, smoke ? [] : [path.join(root, "assets", "ui.html")]],
   ]) {
     const result = spawnSync(command, args, {
       stdio: "inherit",

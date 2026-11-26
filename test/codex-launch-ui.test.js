@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 
 const html = fs.readFileSync(path.join(__dirname, '../assets/ui.html'), 'utf8');
-const handlers = html.slice(html.indexOf('let desktopLaunchSupported='), html.indexOf('async function toggleCodex()'));
+const handlers = html.slice(html.indexOf('let currentNoticeId='), html.indexOf('async function toggleCodex()'));
 
 function fixture(fetch) {
   const elements = new Map(), timers = new Map();

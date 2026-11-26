@@ -13,18 +13,18 @@
   html,body{height:100%}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column;overflow:hidden;transition:background .3s,color .3s}
   .bg{position:fixed;inset:0;z-index:0;background:var(--bg-glow)}
-  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:24px 32px 0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;scrollbar-gutter:stable;transition:background .3s,color .3s}
-  .logo{display:flex;align-items:center;gap:6px;margin-bottom:18px;margin-left:-4px}
+  :root{--dashboard-height:576px}
+  .card{position:relative;z-index:1;background:var(--card-bg);backdrop-filter:blur(20px);border:none;border-radius:0;padding:20px 32px 0;width:100%;flex:1;display:flex;flex-direction:column;overflow-y:auto;transition:background .3s,color .3s}
+  .logo{display:flex;align-items:center;gap:6px;margin-bottom:12px;margin-left:-4px}
+  .card{max-width:400px;max-height:var(--dashboard-height);min-height:0;margin:auto}
   .logo svg{width:28px;height:28px;color:var(--logo-color)}
   h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--accent1),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-  /* 两行文案是硬约束（<br> 手动断行）。第一行在 400px 窗口下实测 315.6px，
-     可用宽度 321px —— 余量只有 5.4px。Windows 的 Segoe UI 比 macOS 的 SF 略宽，
-     一旦超出就会折成第三行，把下方所有间距顶乱。text-wrap:balance 在这里不合适
-     （它会重新分配断点，破坏我们指定的断行），所以用 nowrap 锁死每行：宁可极端
-     情况下被裁切一两个像素，也不能让布局塌掉。 */
-  /* margin-bottom 由 28 收到 20，正好抵消 account box 向上多长的 8px，
-     使 box 底边、以及其下方所有元素的位置保持不变。 */
-  .sub{color:var(--muted);font-size:14px;margin-bottom:20px;white-space:nowrap}
+  .sub{display:grid;color:var(--muted);font-size:14px;margin-bottom:7px}
+  .sub>*{grid-area:1/1}
+  [data-view="connected"] .sub .replaced{visibility:hidden}
+  .header-feedback{visibility:hidden;align-self:center;font-size:12px;line-height:16px;overflow-wrap:anywhere}
+  [data-view="connected"] .header-feedback{visibility:visible}
+  .header-feedback .failed{color:var(--disconnect-color)}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:10px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--fg);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;backdrop-filter:blur(4px)}
   .btn:hover{background:var(--btn-hover-bg);border-color:var(--btn-hover-border);box-shadow:var(--btn-hover-glow)}
   .btn:active{transform:scale(.97)}
@@ -39,7 +39,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   .status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:12px}
-  .panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:18px;margin-top:16px;transition:all .3s}
+  .panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:14px 18px;margin-top:12px;transition:all .3s}
   .panel-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .panel-row:last-child{margin-bottom:0}
   .panel-label{font-size:12px;color:var(--muted)}
@@ -49,6 +49,8 @@
   .dot-gray{background:var(--dot-gray)}
   .dot-pulse{animation:pulse 2s ease-in-out infinite}
   .toggle{position:relative;width:44px;height:24px;border-radius:12px;background:var(--toggle-bg);border:1px solid var(--toggle-border);cursor:pointer;transition:all .3s}
+  .toggle:focus-visible{outline:2px solid var(--accent1);outline-offset:3px}
+  .toggle:disabled{cursor:wait;opacity:.65}
   .toggle.on{background:var(--toggle-on-bg);border-color:var(--toggle-on-border);box-shadow:0 0 12px var(--toggle-on-shadow)}
   .toggle .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:all .3s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
   .toggle.on .knob{left:22px}
@@ -81,32 +83,25 @@
   #token-area .btn{margin-top:10px;width:100%;justify-content:center}
   #view-idle{position:absolute;inset:0;z-index:1;flex-direction:column;justify-content:center;align-items:center;padding:0 32px}
   #view-waiting{position:absolute;inset:0;z-index:1;flex-direction:column;justify-content:center;padding:0 32px}
-  #view-connected{flex:1}
   .logo,.sub{position:relative;z-index:2}
   .footer{position:relative;z-index:2}
   .footer{padding:16px 0 14px;font-size:10px;color:var(--muted);opacity:.65;text-align:right;line-height:1.6}
   .footer a{color:inherit;text-decoration:none;cursor:pointer}
   .footer a:hover{opacity:.8;text-decoration:underline}
-  .theme-btn{position:absolute;top:24px;right:32px;width:32px;height:32px;border-radius:8px;border:1px solid var(--card-border);background:var(--btn-bg);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;z-index:3}
+  .theme-btn{position:absolute;top:19px;right:32px;width:32px;height:32px;border-radius:8px;border:1px solid var(--card-border);background:var(--btn-bg);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;z-index:3}
   .theme-btn:hover{color:var(--fg);border-color:var(--btn-hover-border)}
   .bridge-logo{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tile-bg);border:1px solid var(--tile-border);overflow:hidden}
   .bridge-logo svg{width:20px;height:20px}
   .bridge-logo img{width:24px;height:24px;object-fit:contain}
   .bridge-logo.claude{color:#d97757}
   button.bridge-logo{padding:0;appearance:none;-webkit-appearance:none;color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,box-shadow .2s,opacity .2s}
-  button.bridge-logo:hover:not(:disabled){border-color:var(--btn-hover-border);box-shadow:var(--btn-hover-glow)}
+  button.bridge-logo:hover:not(:disabled),button.bridge-logo:focus-visible{border-color:var(--accent1);box-shadow:0 0 0 1px var(--accent1)}
   button.bridge-logo:focus-visible{outline:2px solid var(--accent1);outline-offset:3px}
   button.bridge-logo:disabled{cursor:default}
   button.bridge-logo[aria-busy="true"]{cursor:wait;opacity:.65}
   button.bridge-logo.launch-error{border-color:var(--disconnect-color)}
-  .launch-feedback{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .panel-row-left{display:flex;align-items:center;gap:12px}
-  /* ── Account 面板：去掉 "Account" 标签，腾出的行高给用量进度条 ──────────────
-     高度锁死。旧布局 = 18(pad)+14(label)+4+26(badge)+18(pad) = 80px。
-     现在 box 向【上】长到 88px（文案下方间距同步 28→20 补偿），底边因此仍钉在
-     原位置，从这里往下的一切（两个 bridge 面板、底部动画、footer）完全不变。
-     多出的 8px 全部给内部呼吸：
-        14(pad-top)+26(badge)+14(gap)+12(标签行)+6(文字↔条)+5(条)+11(pad-bottom) = 88 */
+  /* Reserve space while account usage is loading. */
   .panel.acct{padding:14px 18px 11px;min-height:88px}
   .usage{margin-top:14px}
   .usage-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
@@ -124,10 +119,12 @@
      A Bayer ordered-dither field whose dissolve edge sweeps left→right: sparse
      muted grain on the local-client side resolving into dense accent pixels on
      the Copilot side. margin-top:auto pushes it to the bottom of the card, and
-     the top padding is the breathing room between it and the Codex panel. */
-  .dx{position:relative;width:100%;height:82px;margin-top:auto;padding-top:18px;overflow:hidden;pointer-events:none;flex-shrink:0}
+     the top padding separates the field from the bridge panels. */
+  .dx{position:relative;width:100%;height:82px;flex-shrink:0;margin-top:auto;padding-top:18px;overflow:hidden;pointer-events:none}
+  /* The footer's 16px padding plus the font's ascent leaves 20px to the visible type. */
+  [data-view="connected"] .dx{height:84px;margin-top:0;padding-top:20px}
   .dx canvas{display:block;width:100%;height:100%;opacity:.9;transition:opacity .6s ease}
-  /* Both bridges paused → the field dims and freezes (the JS also stops the loop). */
+  /* All bridges paused → the field dims and freezes (the JS also stops the loop). */
   .dx[data-state="paused"] canvas{opacity:.32}
   /* Feather every edge into the card so the block never reads as a panel. */
   .dx::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,var(--card-bg) 0%,transparent 26%,transparent 74%,var(--card-bg) 100%),linear-gradient(to right,var(--card-bg) 0%,transparent 10%,transparent 94%,var(--card-bg) 100%)}
@@ -152,7 +149,15 @@
     </svg>
     <h1>Kobashi</h1>
   </div>
-  <p class="sub">Route Anthropic Claude Code and OpenAI Codex<br>through GitHub Copilot subscription</p>
+  <div class="sub">
+    <span id="dashboard-description">Route Claude Code, Codex and Grok Build<br>through your GitHub Copilot subscription</span>
+    <span class="header-feedback" role="status" aria-live="polite" aria-atomic="true">
+      <span id="claude-launch-feedback" hidden></span>
+      <span id="codex-launch-feedback" hidden></span>
+      <span id="grok-launch-feedback" hidden></span>
+      <span id="grok-error" hidden></span>
+    </span>
+  </div>
 
   <div id="view-idle">
     <button class="btn" onclick="startAuth()">
@@ -195,12 +200,12 @@
       </div>
     </div>
 
-    <div class="panel" style="margin-top:12px">
+    <div class="panel">
       <div class="panel-row">
         <div class="panel-row-left">
-          <div class="bridge-logo claude" title="Anthropic Claude">
+          <button class="bridge-logo claude" id="claude-launch" type="button" onclick="openClaudeDesktop()" aria-label="Open Claude" aria-describedby="claude-launch-feedback" title="Open Claude" aria-busy="false" disabled>
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 0 1-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76.562-.34 1.095-1.064 1.349-.881 1.141-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>
-          </div>
+          </button>
           <div>
             <span class="panel-label">Claude Bridge</span>
             <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
@@ -209,17 +214,16 @@
             </div>
           </div>
         </div>
-        <div class="toggle" id="claude-toggle" onclick="toggleClaude()"><div class="knob"></div></div>
+        <button class="toggle" id="claude-toggle" onclick="toggleClaude()" type="button" role="switch" aria-label="Claude Bridge" aria-checked="false"><span class="knob"></span></button>
       </div>
     </div>
 
-    <div class="panel" style="margin-top:12px">
+    <div class="panel">
       <div class="panel-row">
         <div class="panel-row-left">
-          <button class="bridge-logo codex" id="codex-launch" type="button" onclick="openCodexDesktop()" aria-label="Open Codex" title="OpenAI Codex" aria-busy="false" disabled>
+          <button class="bridge-logo codex" id="codex-launch" type="button" onclick="openCodexDesktop()" aria-label="Open Codex" aria-describedby="codex-launch-feedback" title="OpenAI Codex" aria-busy="false" disabled>
             <img src="/codex-logo.png" alt="" aria-hidden="true"/>
           </button>
-          <span class="launch-feedback" id="codex-launch-feedback" role="status" aria-live="polite"></span>
           <div>
             <span class="panel-label">Codex Bridge</span>
             <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
@@ -228,7 +232,25 @@
             </div>
           </div>
         </div>
-        <div class="toggle" id="codex-toggle" onclick="toggleCodex()"><div class="knob"></div></div>
+        <button class="toggle" id="codex-toggle" onclick="toggleCodex()" type="button" role="switch" aria-label="Codex Bridge" aria-checked="false"><span class="knob"></span></button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-row">
+        <div class="panel-row-left">
+          <button class="bridge-logo" id="grok-launch" type="button" onclick="openGrokDesktop()" aria-label="Open Grok" aria-describedby="grok-launch-feedback" title="Open Grok" aria-busy="false" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"></path></svg>
+          </button>
+          <div>
+            <span class="panel-label">Grok Bridge</span>
+            <div style="margin-top:4px;display:flex;align-items:center;gap:8px">
+              <span class="dot dot-gray" id="grok-dot"></span>
+              <span class="panel-value" id="grok-text">Checking…</span>
+            </div>
+          </div>
+        </div>
+        <button class="toggle" id="grok-toggle" onclick="toggleGrok()" type="button" role="switch" aria-label="Grok Bridge" aria-checked="false" disabled><span class="knob"></span></button>
       </div>
     </div>
   </div>
@@ -290,19 +312,24 @@ sysLight.addEventListener('change',()=>{
 });
 applyTheme(currentTheme());
 let pollTimer=null,pollInterval=5000;
-function show(v){['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');document.getElementById('view-'+v).style.display=v==='connected'?'block':'flex'}
+let needsInitialStatus=true,grokRevision=0;
+function show(v){
+  needsInitialStatus=false;
+  document.documentElement.setAttribute('data-view',v);
+  ['idle','waiting','connected'].forEach(x=>document.getElementById('view-'+x).style.display='none');
+  document.getElementById('view-'+v).style.display=v==='connected'?'block':'flex';
+}
 function setToggle(prefix,on){
   const t=document.getElementById(prefix+'-toggle'),d=document.getElementById(prefix+'-dot'),s=document.getElementById(prefix+'-text');
   if(on){t.classList.add('on');d.className='dot dot-green dot-pulse';s.textContent='Active'}
   else{t.classList.remove('on');d.className='dot dot-gray';s.textContent='Paused'}
+  t.setAttribute('aria-checked',String(!!on));
   syncAnim();
 }
-// The footer animation represents traffic crossing the bridge, so it only goes
-// dim-and-frozen when there is no bridge left carrying any — i.e. BOTH are off.
+// Keep the footer moving while any bridge is enabled.
 function syncAnim(){
   if(!window.kobashiAnimState)return;
-  const on=document.getElementById('codex-toggle').classList.contains('on')
-        || document.getElementById('claude-toggle').classList.contains('on');
+  const on=['claude','codex','grok'].some(id=>document.getElementById(id+'-toggle').classList.contains('on'));
   window.kobashiAnimState(on);
 }
 function openLink(e){
@@ -326,7 +353,7 @@ async function startAuth(){
 async function poll(dc){
   const r=await fetch('/api/poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})});
   const d=await r.json();
-  if(d.access_token){document.getElementById('username').textContent='@'+d.username;setToggle('codex',true);setToggle('claude',true);show('connected');return}
+  if(d.access_token){finishLogin(d.username);return}
   if(d.error==='slow_down')pollInterval+=5000;
   pollTimer=setTimeout(()=>poll(dc),pollInterval);
 }
@@ -385,13 +412,27 @@ async function submitToken(){
     d=await r.json();
   }catch(_){ tokenFail('network'); return; }
   if(!d||!d.ok){ tokenFail(d&&d.reason); return; }
-  document.getElementById('username').textContent='@'+d.username;
-  setToggle('codex',true);setToggle('claude',true);
-  show('connected');
+  finishLogin(d.username);
   revealToken(false);
 }
-let desktopLaunchSupported=false,desktopLaunchPending=false,desktopLaunchMessage='',desktopLaunchError=false,desktopLaunchFeedbackTimer=null;
-const DESKTOP_LAUNCH_ERRORS={
+let currentNoticeId=null;
+function dashboardNotice(id,message='',failed=false){
+  const notice=document.getElementById(id);
+  if(message){
+    if(currentNoticeId&&currentNoticeId!==id){
+      const previous=document.getElementById(currentNoticeId);
+      previous.textContent='';
+      previous.hidden=true;
+    }
+    currentNoticeId=id;
+  }else if(currentNoticeId===id)currentNoticeId=null;
+  notice.hidden=!message;
+  notice.classList.toggle('failed',failed);
+  notice.textContent=message;
+  document.getElementById('dashboard-description').classList.toggle('replaced',currentNoticeId!==null);
+}
+const CODEX_LAUNCH_ERRORS={
+  __proto__:null,
   desktop_not_found:'Install the official Codex desktop app, then try again.',
   launch_failed:'Could not open Codex. Please try again.',
   launch_pending:'Codex has not finished opening. Check for a system prompt before trying again.',
@@ -400,42 +441,72 @@ const DESKTOP_LAUNCH_ERRORS={
   unsupported_platform:'Opening Codex from this icon is available on macOS and Windows.',
   bridge_not_ready:'Enable the Codex bridge before opening Codex.'
 };
-function renderDesktopLaunch(){
-  const button=document.getElementById('codex-launch');
-  button.disabled=!desktopLaunchSupported||desktopLaunchPending;
-  button.setAttribute('aria-busy',String(desktopLaunchPending));
-  button.setAttribute('aria-label',desktopLaunchSupported?'Open Codex':'Codex');
-  button.title=desktopLaunchPending?'Opening Codex…':desktopLaunchMessage||(desktopLaunchSupported?'Open Codex':'OpenAI Codex');
-  button.classList.toggle('launch-error',desktopLaunchError);
-}
-function setDesktopLaunchSupport(supported){
-  desktopLaunchSupported=supported===true;
-  renderDesktopLaunch();
-}
-function desktopLaunchFeedback(message,error=false){
-  if(desktopLaunchFeedbackTimer!==null)clearTimeout(desktopLaunchFeedbackTimer);
-  desktopLaunchMessage=message;desktopLaunchError=error;
-  document.getElementById('codex-launch-feedback').textContent=message;
-  renderDesktopLaunch();
-  desktopLaunchFeedbackTimer=setTimeout(()=>{
-    desktopLaunchFeedbackTimer=null;desktopLaunchMessage='';desktopLaunchError=false;
-    document.getElementById('codex-launch-feedback').textContent='';
-    renderDesktopLaunch();
-  },6000);
-}
-async function openCodexDesktop(){
-  if(!desktopLaunchSupported||desktopLaunchPending)return;
-  desktopLaunchPending=true;desktopLaunchError=false;renderDesktopLaunch();
-  try{
-    const response=await fetch('/api/codex/open',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    const result=await response.json();
-    if(!response.ok||result?.ok!==true){
-      desktopLaunchFeedback(DESKTOP_LAUNCH_ERRORS[result?.error]||DESKTOP_LAUNCH_ERRORS.launch_failed,true);
-      return;
+const CLAUDE_LAUNCH_ERRORS={
+  __proto__:null,
+  desktop_not_found:'Install the Claude desktop app, then click the Claude icon here again.',
+  launch_failed:'Could not open Claude. Click the Claude icon to retry.',
+  launch_pending:'Claude is starting. Check for a system prompt before trying again.',
+  unsupported_platform:'Opening Claude from this icon is unavailable on this platform.',
+  bridge_not_ready:'Connect to GitHub Copilot, then click the Claude icon again.'
+};
+function desktopShortcut(id,name,errors){
+  const button=document.getElementById(id+'-launch');
+  const noticeId=id+'-launch-feedback';
+  let enabled=false,pending=false,timer=null,accountVersion=0;
+  let message='',failed=false;
+  function render(){
+    button.disabled=!enabled||pending;
+    button.setAttribute('aria-busy',String(pending));
+    button.setAttribute('aria-label',enabled?'Open '+name:name);
+    button.title=pending?'Opening '+name+'…':message||(enabled?'Open '+name:name);
+    button.classList.toggle('launch-error',failed);
+  }
+  function feedback(text='',error=false){
+    if(timer!==null){clearTimeout(timer);timer=null;}
+    message=text;failed=error;
+    dashboardNotice(noticeId,text,error);
+    render();
+  }
+  return {
+    setEnabled(value){
+      const next=value===true;
+      if(enabled&&!next){++accountVersion;feedback();}
+      enabled=next;
+      render();
+    },
+    async open(){
+      if(!enabled||pending)return;
+      const version=accountVersion;
+      pending=true;
+      feedback('Opening '+name+'…');
+      let resultMessage,resultFailed=false;
+      try{
+        const result=await requestDesktopLaunch('/api/'+id+'/open');
+        resultFailed=result?.ok!==true;
+        if(resultFailed)resultMessage=errors[result?.error]||errors.launch_failed;
+        else resultMessage=result.state==='already_running'?name+' is already running.':name+' opened.';
+      }catch(_){
+        resultMessage='Could not reach Kobashi. Please try again.';
+        resultFailed=true;
+      }finally{
+        pending=false;
+        if(enabled&&version===accountVersion&&currentNoticeId===noticeId){
+          feedback(resultMessage,resultFailed);
+          timer=setTimeout(()=>feedback(),6000);
+        }else{message='';failed=false;render();}
+      }
     }
-    desktopLaunchFeedback(result.state==='already_running'?'Codex is already running.':'Codex opened.');
-  }catch(_){desktopLaunchFeedback('Could not reach Kobashi. Please try again.',true);}
-  finally{desktopLaunchPending=false;renderDesktopLaunch();}
+  };
+}
+const codexShortcut=desktopShortcut('codex','Codex',CODEX_LAUNCH_ERRORS);
+const claudeShortcut=desktopShortcut('claude','Claude',CLAUDE_LAUNCH_ERRORS);
+function setDesktopLaunchSupport(supported){codexShortcut.setEnabled(supported);}
+function openCodexDesktop(){return codexShortcut.open();}
+function openClaudeDesktop(){return claudeShortcut.open();}
+async function requestDesktopLaunch(path){
+  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const result=await response.json();
+  return response.ok?result:{ok:false,error:result?.error};
 }
 async function toggleCodex(){
   const r=await fetch('/api/toggle-codex',{method:'POST'});const d=await r.json();setToggle('codex',d.codexEnabled);
@@ -443,11 +514,111 @@ async function toggleCodex(){
 async function toggleClaude(){
   const r=await fetch('/api/toggle-claude',{method:'POST'});const d=await r.json();setToggle('claude',d.claudeEnabled);
 }
+const GROK_LAUNCH_ERRORS={
+  __proto__:null,
+  grok_other_profile_running:'Grok is open with a different or unconfirmed profile. Quit Grok, then click the Grok icon here again.',
+  desktop_not_found:'Install the Grok desktop app, then click its icon here again.',
+  bridge_not_ready:'Enable Grok Bridge, then click the Grok icon again.',
+  no_grok_models:'This Copilot account has no available Grok models. Check model access in GitHub Copilot.',
+  catalog_unavailable:'Could not load Grok models from Copilot. Check the connection and try again.',
+  profile_conflict:'An existing Grok profile needs review. Back up and check ~/.kobashi/grok-desktop before trying again.',
+  profile_unavailable:'Could not prepare the Grok profile. Check that ~/.kobashi/grok-desktop is writable, then try again.',
+  launch_pending:'Grok is starting. Check for a system prompt. If the app stays closed, click its icon here again.',
+  unsupported_platform:'Opening Grok from this icon is unavailable on this platform.',
+  launch_failed:'Could not open Grok. Click its icon here to retry.'
+};
+let grokLaunchSupported=false,grokLaunchPending=false,grokNoticeTimer=null;
+function renderGrokLaunch(){
+  const button=document.getElementById('grok-launch');
+  const toggle=document.getElementById('grok-toggle');
+  button.disabled=!grokLaunchSupported||toggle.disabled||!toggle.classList.contains('on')||grokLaunchPending;
+  button.setAttribute('aria-busy',String(grokLaunchPending));
+  button.title=!grokLaunchSupported?'Grok Build':grokLaunchPending?'Opening Grok…':
+    toggle.classList.contains('on')?'Open Grok':'Enable Grok Bridge to open Grok';
+}
+function grokLaunchNotice(message='',failed=false){
+  if(grokNoticeTimer!==null){clearTimeout(grokNoticeTimer);grokNoticeTimer=null;}
+  dashboardNotice('grok-launch-feedback',message,failed);
+  document.getElementById('grok-launch').classList.toggle('launch-error',failed);
+  if(message&&!failed&&!grokLaunchPending)grokNoticeTimer=setTimeout(()=>grokLaunchNotice(),6000);
+}
+async function openGrokDesktop(){
+  const button=document.getElementById('grok-launch');
+  if(button.disabled)return;
+  const revision=grokRevision;
+  grokLaunchPending=true;
+  grokLaunchNotice('Opening Grok…');
+  renderGrokLaunch();
+  let message,failed=false;
+  try{
+    const result=await requestDesktopLaunch('/api/grok/open');
+    failed=result?.ok!==true;
+    if(failed)message=GROK_LAUNCH_ERRORS[result?.error]||GROK_LAUNCH_ERRORS.launch_failed;
+    else message=result.state==='already_running'?'Grok is already open with Kobashi.':'Grok opened with Kobashi.';
+  }catch(_){
+    failed=true;
+    message='Could not reach Kobashi. Click the Grok icon to retry.';
+  }finally{
+    grokLaunchPending=false;
+    renderGrokLaunch();
+    if(revision===grokRevision&&!button.disabled&&currentNoticeId==='grok-launch-feedback')grokLaunchNotice(message,failed);
+    else grokLaunchNotice();
+  }
+}
+function finishLogin(username){
+  ++grokRevision;
+  document.getElementById('username').textContent='@'+username;
+  setToggle('codex',true);setToggle('claude',true);
+  setToggle('grok',false);
+  document.getElementById('grok-text').textContent='Checking…';
+  const button=document.getElementById('grok-toggle');
+  button.disabled=true;
+  button.removeAttribute('aria-busy');
+  grokLaunchNotice();
+  renderGrokLaunch();
+  dashboardNotice('grok-error');
+  claudeShortcut.setEnabled(false);
+  show('connected');
+  refreshStatus();
+}
+async function toggleGrok(){
+  const button=document.getElementById('grok-toggle');
+  if(button.disabled)return;
+  const revision=++grokRevision;
+  dashboardNotice('grok-error');
+  button.disabled=true;
+  button.setAttribute('aria-busy','true');
+  grokLaunchNotice();
+  renderGrokLaunch();
+  try{
+    const response=await fetch('/api/toggle-grok',{method:'POST'});
+    const data=await response.json();
+    if(!response.ok||typeof data.grokEnabled!=='boolean')throw Error();
+    if(revision===grokRevision)setToggle('grok',data.grokEnabled);
+  }catch(_){
+    if(revision===grokRevision){
+      dashboardNotice('grok-error','Could not change Grok Bridge. Try again.',true);
+    }
+  }finally{
+    if(revision===grokRevision){
+      ++grokRevision;
+      button.removeAttribute('aria-busy');
+      button.disabled=false;
+      renderGrokLaunch();
+    }
+  }
+}
 async function disconnect(){
   // The server decides where to land: a token user sent back to the GitHub
   // button would be stuck, since device flow needs the account holder's password.
   let next='idle';
   try{ const d=await(await fetch('/api/disconnect',{method:'POST'})).json(); if(d&&d.next)next=d.next; }catch(_){}
+  ++grokRevision;
+  grokLaunchSupported=false;
+  claudeShortcut.setEnabled(false);
+  grokLaunchNotice();
+  if(currentNoticeId)dashboardNotice(currentNoticeId);
+  renderGrokLaunch();
   show('idle');
   // A token user sent back to a bare GitHub button would be stuck: device flow
   // needs the account holder's password. Open the field for them directly.
@@ -461,6 +632,12 @@ function syncStatus(d){
   document.getElementById('username').textContent='@'+d.username;
   setToggle('codex',d.codexEnabled);
   setToggle('claude',d.claudeEnabled);
+  const button=document.getElementById('grok-toggle');
+  if(!button.hasAttribute('aria-busy')&&typeof d.grokEnabled==='boolean'){
+    if(!d.grokEnabled&&button.classList.contains('on'))grokLaunchNotice();
+    setToggle('grok',d.grokEnabled);
+    button.disabled=false;
+  }
   renderUsage(d.usage);
 }
 // Copilot premium-request 用量条。服务端还没有提供 d.usage，所以今天这段永远走
@@ -483,15 +660,27 @@ function renderUsage(u){
   fill.style.width=Math.max(pct,pct>0?0.35:0)+'%';
   box.classList.remove('hidden');
 }
-fetch('/api/status').then(r=>r.json()).then(d=>{
-  setDesktopLaunchSupport(d.desktopLaunchSupported);
-  // Footer version comes from the server (package.json / build stamp) so it can
-  // never drift from the actual build the way the old hard-coded string did.
-  if(d.version){var v=document.getElementById('ver');v.textContent='v'+d.version+(d.releaseDate?' · '+d.releaseDate:'')}
-  if(d.connected){syncStatus(d);show('connected')}
-  else show('idle');
-});
-setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{setDesktopLaunchSupport(d.desktopLaunchSupported);if(d.connected)syncStatus(d)}).catch(()=>{}),2000);
+async function refreshStatus(){
+  // Discard a poll that was sent before a switch or account change finished.
+  const revision=grokRevision;
+  try{
+    const response=await fetch('/api/status');
+    if(!response.ok)return;
+    const d=await response.json();
+    if(revision!==grokRevision)return;
+    setDesktopLaunchSupport(d.desktopLaunchSupported);
+    claudeShortcut.setEnabled(d.connected===true&&d.claudeDesktopLaunchSupported===true);
+    grokLaunchSupported=d.connected===true&&d.grokDesktopLaunchSupported===true;
+    if(d.version){
+      document.getElementById('ver').textContent='v'+d.version+(d.releaseDate?' · '+d.releaseDate:'');
+    }
+    if(d.connected)syncStatus(d);
+    renderGrokLaunch();
+    if(needsInitialStatus)show(d.connected?'connected':'idle');
+  }catch(_){/* A subsequent poll retries if the local UI server is unavailable. */}
+}
+refreshStatus();
+setInterval(refreshStatus,2000);
 setInterval(()=>fetch('/api/heartbeat',{method:'POST'}).catch(()=>{}),2000);
 // Tell the bridge to shut down only when this window is GENUINELY closed. A tab
 // that Edge/Windows merely freezes in the background does not fire pagehide, so
@@ -505,7 +694,7 @@ window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigat
 // client and arriving saturated on the Copilot side.
 //
 // This window can sit open for days, so idle cost is the whole design problem:
-//   • No frames are scheduled at all when the tab is hidden, both bridges are
+//   • No frames are scheduled at all when the tab is hidden, all bridges are
 //     paused, or prefers-reduced-motion is set — those draw ONE static frame
 //     and then cancel the rAF, rather than redrawing an identical picture 20x
 //     a second forever.
@@ -552,7 +741,7 @@ window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigat
     }
   }
   function size(){
-    var r=host.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
+    var r=cv.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1);
     W=Math.max(1,Math.round(r.width));H=Math.max(1,Math.round(r.height));
     cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
   }
@@ -589,7 +778,7 @@ window.addEventListener('pagehide',function(e){if(e.persisted)return;try{navigat
   if(reduceMQ.addEventListener)reduceMQ.addEventListener('change',sync);
   // Repaint with a freshly-baked palette when the theme flips (manual or system).
   window.kobashiRepaintAnim=function(){theme();sync();paint();};
-  // Driven by setToggle(): dim + freeze only when BOTH bridges are paused.
+  // Driven by setToggle(): dim + freeze only when all bridges are paused.
   window.kobashiAnimState=function(active){
     host.setAttribute('data-state',active?'active':'paused');sync();
   };

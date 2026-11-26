@@ -4,7 +4,9 @@ const net = require("net");
 const tls = require("tls");
 const fs = require("fs");
 const path = require("path");
+const { randomUUID } = require("node:crypto");
 const { execSync, spawn } = require("child_process");
+const { createWindowsDashboard } = require("./lib/windows-dashboard");
 const {
   injectCodexConfig,
   restoreCodexConfigContents,
@@ -28,8 +30,16 @@ const { CodexClientLifecycle } = require("./lib/codex-client-lifecycle");
 const { probeCodexModel } = require("./lib/codex-model-probe");
 const { createCodexProbeTransport } = require("./lib/codex-probe-transport");
 const { createCodexDesktopLauncher, createCodexOpenHandler } = require("./lib/codex-desktop-launcher");
+const { createClaudeDesktopLauncher, CLAUDE_LAUNCH_ERRORS } = require("./lib/claude-desktop-launcher");
+const { createDesktopOpenHandler } = require("./lib/desktop-open-handler");
+const { createGrokDesktopLauncher, GROK_LAUNCH_ERRORS } = require("./lib/grok-desktop-launcher");
+const { ensureGrokLaunchProfile } = require("./lib/grok-launch-profile");
+const { createGrokGateway, listGrokModels } = require("./lib/grok-gateway");
+const { GROK_PORT, GROK_BASE_URL, loadGrokGatewayKey, createGrokSessionReader,
+  grokSessionFromRecord, isLocalGrokControl } = require("./lib/grok-local");
 
 const DEBUG = process.argv.includes("--debug");
+const GROK_ONLY = process.argv.includes("--grok-only");
 const log = (...a) => console.log(...a);
 const dbg = (...a) => { if (DEBUG) console.log(...a); };
 
@@ -48,62 +58,36 @@ process.on("unhandledRejection", (e) => {
 });
 
 // ─── Browser detection ─────────────────────────────────────────────────────
-function findBrowser() {
-  if (process.platform === "darwin") {
-    const home = process.env.HOME || "";
-    const candidates = [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-      "/Applications/Arc.app/Contents/MacOS/Arc",
-      path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-      path.join(home, "Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-    ];
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-    return null;
-  }
-  // Windows
+function findMacBrowser() {
+  const home = process.env.HOME || "";
   const candidates = [
-    process.env["ProgramFiles(x86)"] && path.join(process.env["ProgramFiles(x86)"], "Microsoft\\Edge\\Application\\msedge.exe"),
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Microsoft\\Edge\\Application\\msedge.exe"),
-    process.env["ProgramFiles(x86)"] && path.join(process.env["ProgramFiles(x86)"], "Google\\Chrome\\Application\\chrome.exe"),
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Google\\Chrome\\Application\\chrome.exe"),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google\\Chrome\\Application\\chrome.exe"),
-  ].filter(Boolean);
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  for (const cmd of ["msedge", "chrome"]) {
-    try { const r = execSync(`where ${cmd}`, { stdio: "pipe", windowsHide: true }).toString().trim().split("\n")[0]; if (r) return r.trim(); } catch {}
-  }
-  return null;
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Arc.app/Contents/MacOS/Arc",
+    path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    path.join(home, "Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+  ];
+  return candidates.find(file => fs.existsSync(file));
 }
 
-const BROWSER_PATH = findBrowser();
+const BROWSER_PATH = process.platform === "darwin" && findMacBrowser();
+const windowsDashboard = process.platform === "win32" && createWindowsDashboard({
+  pageAlive: () => Date.now() - lastHeartbeat < 5000,
+});
+const APP_WINDOW_SIZE = "--window-size=400,616"; // Approximate macOS browser frame for a 400 × 576 viewport.
 
 function openAppWindow(url) {
   if (process.platform === "darwin") {
     if (BROWSER_PATH) {
-      spawn(BROWSER_PATH, [`--app=${url}`, "--window-size=400,560", "--no-default-browser-check"], {
+      spawn(BROWSER_PATH, [`--app=${url}`, APP_WINDOW_SIZE, "--no-default-browser-check"], {
         detached: true, stdio: "ignore",
       }).unref();
     } else {
       spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
     }
-  } else {
-    if (BROWSER_PATH) {
-      // Anti-freeze flags: stop Edge/Chrome from throttling or suspending this
-      // window's timers when it's backgrounded/minimized/occluded, so the UI's
-      // status polling keeps running instead of the window going to 0 K working
-      // set. Best-effort (ignored if the browser is already running), which is
-      // why the real fix is the pagehide beacon + removal of the suicide watchdog.
-      const antiFreeze = "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
-      execSync(`start "" "${BROWSER_PATH}" --app=${url} --window-size=400,560 ${antiFreeze}`, { stdio: "ignore", shell: true, windowsHide: true });
-    } else {
-      execSync(`start "" "${url}"`, { stdio: "ignore", shell: true, windowsHide: true });
-    }
+  } else if (windowsDashboard) {
+    windowsDashboard.open(url).catch(error => log("[Bridge] Unable to open the dashboard:", error.message));
   }
 }
 
@@ -125,6 +109,7 @@ if (APP_VERSION === "0.0.0") {
 const PROXY_PORT = 18921;
 const UI_PORT = 18922;
 const CLAUDE_PORT = 18923;
+const GROK_APP_BASE_URL = `http://127.0.0.1:${UI_PORT}/grok/v1`;
 
 // ─── System proxy detection ────────────────────────────────────────────────
 // Detect the OS-level proxy and route upstream Copilot requests through it, so
@@ -936,12 +921,13 @@ function migrateLegacySession() {
   } catch (e) { dbg("[Session] migration failed:", e.message); }
 }
 
-function saveSession() {
+function saveSession(enabled = grokEnabled, revision = grokRevision) {
   try {
     fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
-    fs.writeFileSync(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, codexEnabled, claudeEnabled, authMethod }, null, 2));
-    try { fs.chmodSync(SESSION_FILE, 0o600); } catch {}
-  } catch (e) { dbg("[Session] save failed:", e.message); }
+    writeTextAtomic(SESSION_FILE, JSON.stringify({ github_token: githubToken, username, codexEnabled, claudeEnabled,
+      grokEnabled: enabled, grokRevision: revision, authMethod }, null, 2), 0o600);
+    return true;
+  } catch (e) { dbg("[Session] save failed:", e.message); return false; }
 }
 
 function deleteSession() {
@@ -954,8 +940,11 @@ async function loadSession() {
     migrateLegacySession();
     if (!fs.existsSync(SESSION_FILE)) return false;
     const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
-    if (!data.github_token) return false;
-    githubToken = data.github_token;
+    const grok = grokSessionFromRecord(data, randomUUID());
+    if (!grok) return false;
+    githubToken = grok.account;
+    grokEnabled = grok.enabled;
+    grokRevision = grok.revision;
     username = data.username || "";
     // Backward compat: old sessions used single bridgeEnabled flag (Codex only)
     codexEnabled = data.codexEnabled !== undefined ? data.codexEnabled : (data.bridgeEnabled !== false);
@@ -970,7 +959,7 @@ async function loadSession() {
     return true;
   } catch (e) {
     dbg("[Session] restore failed:", e.message);
-    githubToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    githubToken = null; username = null; codexEnabled = false; claudeEnabled = false; grokEnabled = false;
     copilotToken = null; copilotTokenExpiry = 0;
     deleteSession();
     return false;
@@ -980,6 +969,7 @@ async function loadSession() {
 // ─── State ─────────────────────────────────────────────────────────────────
 let githubToken = null, copilotToken = null, copilotTokenExpiry = 0;
 let username = null, codexEnabled = false, claudeEnabled = false;
+let grokEnabled = false, grokRevision = null;
 let codexConfigured = false, codexConfigGeneration = 0;
 // How this machine signed in: "device" (GitHub device flow) or "token" (a token
 // pasted by the user). Device flow authenticates as the *account holder*, so it
@@ -1069,9 +1059,10 @@ async function ensureCopilotToken() {
   });
   if (account !== githubToken) throw new Error("GitHub account changed during token refresh");
   if (res.status === 401 || res.status === 403) {
+    if (GROK_ONLY) throw new Error("Reconnect your GitHub account in Kobashi");
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
-    githubToken = null; copilotToken = null; copilotTokenExpiry = 0; username = null; codexEnabled = false; claudeEnabled = false;
+    githubToken = null; copilotToken = null; copilotTokenExpiry = 0; username = null; codexEnabled = false; claudeEnabled = false; grokEnabled = false;
     clearCopilotModelCache();
     usageCache = null; usageCacheAt = 0;   // never show the revoked account's numbers
     deleteSession();
@@ -1203,11 +1194,9 @@ async function getCopilotModelsRaw(options = {}) {
   const now = Date.now();
   if (!options.force && copilotModelsCache &&
       now - copilotModelsCacheAt < COPILOT_MODELS_TTL) return copilotModelsCache;
-  if (copilotModelsRequest) return copilotModelsRequest;
-
   const previous = copilotModelsCache;
   const generation = copilotModelsGeneration;
-  const request = (async () => {
+  const request = copilotModelsRequest || (async () => {
     let token = await ensureCopilotToken();
     let response = await requestCopilotModels(token);
     if (generation !== copilotModelsGeneration) throw new Error("Copilot account changed during discovery");
@@ -1241,7 +1230,7 @@ async function getCopilotModelsRaw(options = {}) {
   try {
     return await request;
   } catch (error) {
-    if (previous && generation === copilotModelsGeneration) {
+    if (options.allowStale !== false && previous && generation === copilotModelsGeneration) {
       dbg("[Models] live refresh failed; using stale cache:", error.message);
       return previous;
     }
@@ -1487,13 +1476,92 @@ const claudeProxy = http.createServer(createClaudeGateway({
   },
 }));
 
+const readGrokSession = GROK_ONLY && createGrokSessionReader(SESSION_FILE);
+function activeGrokSession() {
+  if (readGrokSession) {
+    const saved = readGrokSession();
+    const account = saved?.account ?? null;
+    grokEnabled = saved?.enabled === true;
+    grokRevision = saved?.revision ?? null;
+    if (account !== githubToken) {
+      githubToken = account;
+      copilotToken = null;
+      copilotTokenExpiry = 0;
+      clearCopilotModelCache();
+    }
+  }
+  return githubToken && grokEnabled ? copilotModelsGeneration + "/" + grokRevision : null;
+}
+let grokGatewayKey;
+function getGrokGatewayKey() {
+  return grokGatewayKey ||= loadGrokGatewayKey();
+}
+const grokGateway = createGrokGateway({
+  active: activeGrokSession, gatewayToken: getGrokGatewayKey, models: () => getCopilotModelsRaw({ allowStale: false }),
+  hostname: COPILOT_API, request: upstreamHttpsRequest, token: ensureCopilotToken,
+  invalidateToken: rejected => {
+    if (copilotToken === rejected) { copilotToken = null; copilotTokenExpiry = 0; }
+  },
+  isAuthFailure: isAuthFailureBody,
+});
+
+function startGrokGateway() {
+  const server = http.createServer(grokGateway);
+  const onFailure = error => {
+    log(`[Grok] ${GROK_BASE_URL} unavailable: ${error.message}`);
+    if (GROK_ONLY) process.exitCode = 1;
+  };
+  server.on("error", onFailure);
+  server.listen(GROK_PORT, "127.0.0.1", () => {
+    try {
+      getGrokGatewayKey();
+      log(`[Grok] GitHub Copilot gateway on ${GROK_BASE_URL}`);
+    } catch (error) {
+      server.close();
+      onFailure(error);
+    }
+  });
+}
+
 // ─── UI server ─────────────────────────────────────────────────────────────
+const claudeDesktopLauncher = createClaudeDesktopLauncher();
+const claudeOpenHandler = createDesktopOpenHandler({ route: "/api/claude/open", launcher: claudeDesktopLauncher,
+  port: UI_PORT, safeErrors: CLAUDE_LAUNCH_ERRORS });
+const grokDesktopLauncher = createGrokDesktopLauncher({
+  profileRoot: path.join(KOBASHI_DIR, "grok-desktop"), ready: activeGrokSession,
+  async prepareProfile() {
+    const session = activeGrokSession();
+    if (!session) throw Object.assign(new Error("Grok bridge is inactive"), { code: "bridge_not_ready" });
+    let catalog;
+    try { catalog = listGrokModels(await getCopilotModelsRaw({ allowStale: false })); }
+    catch { throw Object.assign(new Error("Cannot load Copilot models"), { code: "catalog_unavailable" }); }
+    if (session !== activeGrokSession()) throw Object.assign(new Error("Grok bridge session changed"), { code: "bridge_not_ready" });
+    try {
+      return ensureGrokLaunchProfile(path.join(KOBASHI_DIR, "grok-desktop"), catalog, GROK_APP_BASE_URL, getGrokGatewayKey());
+    } catch (error) {
+      if (error.code === "no_grok_models" || error.code === "profile_conflict") throw error;
+      throw Object.assign(new Error("Cannot prepare local Grok profile"), { code: "profile_unavailable" });
+    }
+  },
+});
+const grokOpenHandler = createDesktopOpenHandler({ route: "/api/grok/open", launcher: grokDesktopLauncher,
+  port: UI_PORT, ready: activeGrokSession, safeErrors: GROK_LAUNCH_ERRORS, localRequest: isLocalGrokControl });
 const codexDesktopLauncher = createCodexDesktopLauncher({
   platform: process.platform, codexHome: CODEX_DIR, nativeAccount: readCodexNativeAuthPreference,
 });
 const codexOpenHandler = createCodexOpenHandler({ launcher: codexDesktopLauncher,
   port: UI_PORT, ready: () => !!githubToken && codexEnabled && codexConfigured });
 const ui = http.createServer(async (req, res) => {
+  // An app opened from this dashboard must follow this instance's switch, even
+  // when an older standalone gateway still owns its independent port.
+  if (req.url.startsWith("/grok/")) {
+    if (!isLocalGrokControl(req, UI_PORT)) { res.writeHead(403); res.end(); return; }
+    req.url = req.url.slice("/grok".length);
+    await grokGateway(req, res);
+    return;
+  }
+  if (await claudeOpenHandler(req, res)) return;
+  if (await grokOpenHandler(req, res)) return;
   if (await codexOpenHandler(req, res)) return;
   if (req.method === "POST" && req.url === "/api/start") {
     const r = await httpsRequest(
@@ -1511,6 +1579,8 @@ const ui = http.createServer(async (req, res) => {
     );
     if (r.body.access_token) {
       githubToken = r.body.access_token;
+      grokEnabled = true;
+      grokRevision = randomUUID();
       copilotToken = null;
       copilotTokenExpiry = 0;
       clearCopilotModelCache();
@@ -1548,6 +1618,8 @@ const ui = http.createServer(async (req, res) => {
 
     clearCopilotModelCache();
     githubToken = token;
+    grokEnabled = true;
+    grokRevision = randomUUID();
     username = v.login;
     copilotToken = v.copilot;
     copilotTokenExpiry = v.copilotExpiry;
@@ -1582,6 +1654,7 @@ const ui = http.createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/focus") {
+    if (!isLocalGrokControl(req, UI_PORT)) { res.writeHead(403); res.end(); return; }
     focusAppWindow();
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
@@ -1592,7 +1665,25 @@ const ui = http.createServer(async (req, res) => {
     let usage = null;
     try { usage = await getCopilotUsage(); } catch { usage = null; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, desktopLaunchSupported: codexDesktopLauncher.supported, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, codexModels: codexCapabilities.status(), version: APP_VERSION, releaseDate: APP_DATE })); return;
+    res.end(JSON.stringify({ connected: !!githubToken, username, authMethod, codexEnabled, claudeEnabled, grokEnabled: !!githubToken && grokEnabled, desktopLaunchSupported: codexDesktopLauncher.supported, claudeDesktopLaunchSupported: claudeDesktopLauncher.supported, grokDesktopLaunchSupported: grokDesktopLauncher.supported, proxyPort: PROXY_PORT, claudePort: CLAUDE_PORT, lastEffort, usage, codexModels: codexCapabilities.status(), version: APP_VERSION, releaseDate: APP_DATE })); return;
+  }
+  if (req.url === "/api/toggle-grok") {
+    const reply = (status, value) => {
+      res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify(value));
+    };
+    if (!isLocalGrokControl(req, UI_PORT)) return reply(403, { error: "Invalid origin" });
+    if (req.method !== "POST") return reply(405, { error: "Expected POST" });
+    if (req.headers["transfer-encoding"] || Number(req.headers["content-length"] || 0) !== 0) {
+      req.resume();
+      return reply(400, { error: "Expected an empty request body" });
+    }
+    if (!githubToken) return reply(400, { error: "Not connected" });
+    const enabled = !grokEnabled, revision = randomUUID();
+    if (!saveSession(enabled, revision)) return reply(500, { error: "Could not save Grok Bridge setting" });
+    grokEnabled = enabled;
+    grokRevision = revision;
+    return reply(200, { grokEnabled });
   }
   if (req.method === "POST" && req.url === "/api/toggle-codex") {
     if (!githubToken) { res.writeHead(400); res.end(JSON.stringify({ error: "Not connected" })); return; }
@@ -1611,7 +1702,7 @@ const ui = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/disconnect") {
     if (codexEnabled) restoreCodexConfig();
     if (claudeEnabled) restoreClaudeConfig();
-    githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false;
+    githubToken = null; copilotToken = null; username = null; codexEnabled = false; claudeEnabled = false; grokEnabled = false;
     // Expiry must be zeroed alongside the token it describes: a stale non-zero
     // expiry paired with a fresh token from the *next* sign-in would make the
     // cache look valid when it is not.
@@ -1669,45 +1760,40 @@ process.on("SIGTERM", () => { cleanupOnExit(); process.exit(); });
 let lastHeartbeat = 0;
 
 function focusAppWindow() {
-  if (process.platform === "win32") {
-    const ps = `
-      Add-Type @"
-      using System; using System.Runtime.InteropServices;
-      public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); }
-"@
-      Get-Process msedge,chrome,brave -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -like '*Kobashi*' } |
-        ForEach-Object { [W]::ShowWindow($_.MainWindowHandle,9); [W]::SetForegroundWindow($_.MainWindowHandle) }
-    `;
-    try { execSync(`powershell -WindowStyle Hidden -Command "${ps.replace(/\n\s*/g, ' ')}"`, { stdio: "ignore", windowsHide: true }); } catch {}
-  }
+  if (windowsDashboard) openAppWindow(`http://127.0.0.1:${UI_PORT}`);
 }
 
 function openBrowser() {
   if (!process.argv.includes("--no-open")) openAppWindow(`http://127.0.0.1:${UI_PORT}`);
 }
 
-const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
-  // Already running — ask the server to focus its window
-  const focusReq = http.request({ hostname: "127.0.0.1", port: UI_PORT, path: "/api/focus", method: "POST" }, () => process.exit(0));
-  focusReq.on("error", () => process.exit(0));
-  focusReq.end();
-});
-testReq.on("error", () => {
-  proxy.listen(PROXY_PORT, () => log(`[Bridge] Codex proxy on http://127.0.0.1:${PROXY_PORT}`));
-  claudeProxy.listen(CLAUDE_PORT, "127.0.0.1", () => log(`[Bridge] Claude proxy on http://127.0.0.1:${CLAUDE_PORT}`));
-  ui.listen(UI_PORT, async () => {
-    log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
-    await loadSession();
-    openBrowser();
-    // Shutdown is now driven by an explicit /api/closing beacon the UI sends on
-    // genuine window close (see the route above). We deliberately no longer kill
-    // the bridge on a heartbeat gap: Edge/Windows freezes backgrounded windows
-    // (0 K working set), which stalls the heartbeat and used to make the bridge
-    // commit suicide mid-session → ConnectionRefused. Surviving a frozen window
-    // is far more important than promptly reaping a force-killed one (the latter
-    // just lingers on localhost and is reused by the single-instance guard on the
-    // next launch).
+function startDesktop() {
+  const testReq = http.get(`http://127.0.0.1:${UI_PORT}/api/status`, () => {
+    // Already running — ask the server to focus its window
+    const focusReq = http.request({ hostname: "127.0.0.1", port: UI_PORT, path: "/api/focus", method: "POST" }, () => process.exit(0));
+    focusReq.on("error", () => process.exit(0));
+    focusReq.end();
   });
-});
-testReq.end();
+  testReq.on("error", () => {
+    startGrokGateway();
+    proxy.listen(PROXY_PORT, () => log(`[Bridge] Codex proxy on http://127.0.0.1:${PROXY_PORT}`));
+    claudeProxy.listen(CLAUDE_PORT, "127.0.0.1", () => log(`[Bridge] Claude proxy on http://127.0.0.1:${CLAUDE_PORT}`));
+    ui.listen(UI_PORT, async () => {
+      log(`[Bridge] UI on http://127.0.0.1:${UI_PORT}`);
+      await loadSession();
+      openBrowser();
+      // Shutdown is now driven by an explicit /api/closing beacon the UI sends on
+      // genuine window close (see the route above). We deliberately no longer kill
+      // the bridge on a heartbeat gap: Edge/Windows freezes backgrounded windows
+      // (0 K working set), which stalls the heartbeat and used to make the bridge
+      // commit suicide mid-session → ConnectionRefused. Surviving a frozen window
+      // is far more important than promptly reaping a force-killed one (the latter
+      // just lingers on localhost and is reused by the single-instance guard on the
+      // next launch).
+    });
+  });
+  testReq.end();
+}
+
+if (GROK_ONLY) startGrokGateway();
+else startDesktop();

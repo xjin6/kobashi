@@ -48,3 +48,22 @@ test("late token results cannot overwrite or sign out a newly connected account"
     assert.equal(restores, 0);
   }
 });
+
+test("Grok refuses an expired directory while a concurrent reader can keep its own stale-cache policy", async () => {
+  const context = vm.createContext({
+    ensureCopilotToken: async () => "test", isAuthFailureBody: () => false, dbg() {},
+  });
+  vm.runInContext(source.slice(source.indexOf("let copilotModelsCache ="), source.indexOf("async function getCopilotClaudeModelsRaw")), context);
+  context.requestCopilotModels = async () => ({ status: 200, raw: '{"data":[{"id":"old"}]}' });
+  await context.getCopilotModelsRaw();
+  vm.runInContext("copilotModelsCacheAt = 0", context);
+  let fail, reads = 0;
+  context.requestCopilotModels = () => { reads++; return new Promise((_, reject) => { fail = reject; }); };
+  const strict = assert.rejects(context.getCopilotModelsRaw({ allowStale: false }), /disconnected/);
+  const tolerant = context.getCopilotModelsRaw();
+  await tick();
+  fail(new Error("disconnected"));
+  await strict;
+  assert.equal((await tolerant)[0].id, "old");
+  assert.equal(reads, 1);
+});
