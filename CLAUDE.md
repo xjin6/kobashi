@@ -2,6 +2,15 @@
 
 Local bridge that proxies inference for Codex and Claude Desktop.
 
+## Feature update ledger
+
+Read [FEATURE_UPDATES.md](FEATURE_UPDATES.md) before implementing changes. Every
+feature, user-visible fix, compatibility change, UI/layout adjustment, and
+packaging/lifecycle update must update that file in the same change. Keep its
+current capability baseline and dated history accurate, with source pointers,
+actual validation, limits, and TokenX catch-up notes. Distinguish implemented,
+built, and released changes. See [AGENTS.md](AGENTS.md) for the shared convention.
+
 ## NEVER kill the running Kobashi process
 
 **Kobashi is the user's live connection to the AI they are talking to right now — including this session.** Killing it cuts the conversation mid-flight. There is no "quick restart"; the user is left with a dead client and no way to tell you so.

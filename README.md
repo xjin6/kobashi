@@ -2,11 +2,18 @@
 
 Route Claude Code, OpenAI Codex and Grok Build through your GitHub Copilot subscription.
 
-Kobashi **2.4.0** is available for macOS and Windows.
+For the current capability baseline and change history used to bring TokenX up to
+date, read [FEATURE_UPDATES.md](FEATURE_UPDATES.md). Feature, compatibility, UI,
+and packaging changes update that ledger alongside the implementation.
+
+Kobashi **2.4.1** is available for macOS and Windows, adding verified Copilot
+Fast routing and showing the lightning control only for supported models. See
+[Feature Updates](FEATURE_UPDATES.md) for validation and release details.
 Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
 and the assembled bundle signature checked again after extraction.
-Windows builds verify the packaged native-account runtime and asset hashes,
-and record their source snapshot in `output/last-windows-build.json`.
+Windows-native builds execute the packaged self-test and verify asset hashes;
+cross-builds verify the x64 GUI PE structure. Both record their source snapshot
+in `output/last-windows-build.json`.
 
 Kobashi is a local bridge for Claude Code, OpenAI Codex and Grok Build. It routes supported model requests through your existing GitHub Copilot subscription.
 
@@ -20,8 +27,8 @@ Kobashi is a local bridge for Claude Code, OpenAI Codex and Grok Build. It route
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.4.0)](https://github.com/xjin6/kobashi/releases/download/v2.4.0/Kobashi.zip)** | ~36 MB |
-| **Windows x64** | **[Kobashi.exe (v2.4.0)](https://github.com/xjin6/kobashi/releases/download/v2.4.0/Kobashi.exe)** | ~56 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.4.1)](https://github.com/xjin6/kobashi/releases/download/v2.4.1/Kobashi.zip)** | ~36 MB |
+| **Windows x64** | **[Kobashi.exe (v2.4.1)](https://github.com/xjin6/kobashi/releases/download/v2.4.1/Kobashi.exe)** | ~56 MB |
 
 On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
 `Kobashi.app` to Applications. The troubleshooting note below applies to older
@@ -249,7 +256,8 @@ after preparation. Kobashi never restarts the client or interrupts a live turn.
 New models are checked with a small, real streaming tool-call request
 before being published to the directory or `/v1/models`. HTTP 200 alone is
 insufficient: the check must finish successfully with a valid tool call. There is
-no model-name allowlist, compatibility exception list, or silent model substitution.
+no fixed model-name allowlist or silent model substitution. An explicit Fast
+selection can route to a verified same-model Fast variant as described below.
 
 The same refresh reads the installed Codex client's native catalog. Ultra is a
 client delegation mode: its exact native model metadata and underlying API effort
@@ -280,6 +288,51 @@ some usage, including bounded parameter-negotiation retries. A transient failure
 does not schedule further checks in the background; restart Codex to retry.
 Exiting the clients stops queued validation work. Account changes and newer
 startups invalidate late results from older rounds.
+
+### Codex Fast through Copilot
+
+Copilot can expose a separate Fast model ID, such as `gpt-5.6-sol-fast`, while
+Codex expresses its speed selection as `service_tier`. Kobashi connects these
+two interfaces only when the current account has a verified same-model variant.
+
+An enabled, protocol-compatible `-fast` variant of an eligible public OpenAI
+model can enter discovery even if Copilot labels it `Experimental` or
+`Internal only`. The base and variant must pass their own streaming tool-call
+checks. The base model gains a Fast speed option only when the variant also
+preserves its advertised reasoning levels, context/prompt/output capacity and
+required capabilities. The Fast model can also appear as a direct picker entry.
+Unrelated internal models are not enabled by this rule.
+
+This discovery and routing applies to every eligible OpenAI model family; no
+individual Fast model is hard-coded. The native picker's lightning capability
+and Fast selector are published together only for a verified compatible pair.
+Models without that pair expose neither, and a directly selected `-fast` model
+does not expose another Fast switch. A newly available sibling is picked up by
+the normal startup discovery process. The account catalog checked on
+2026-11-28 contained 39 entries and only one Fast ID, `gpt-5.6-sol-fast`;
+other OpenAI models' native Fast metadata does not imply Copilot availability.
+
+Selecting Fast (`priority` or `fast`) routes to that exact sibling and removes
+the unsupported `service_tier` field before forwarding. For example, GPT-5.6 Sol
+Fast uses `gpt-5.6-sol-fast`; it never switches GPT-6 Astra to GPT-5.6 Sol.
+Standard (`default`, `auto`, or `null`) simply omits the field. Input, tools and
+token budgets are preserved. If Fast is unavailable, or the client requests an
+unknown tier, Kobashi returns a clear local error without an upstream request
+or a silent Standard fallback.
+
+OpenAI-native speed tiers are not inherited without Copilot verification. A
+directly selected Fast model does not inherit an unsupported Ultra option from
+its base. Known streaming response model aliases are normalized in the `OpenAI-Model`
+header and SSE events to keep the client's selected identity consistent; an
+unexpected upstream model remains visible. Fast-specific access failures and
+compatibility rules do not disable the base model's Standard route.
+
+Use a build containing this change, then follow the full Codex startup/refresh
+process above to load its updated picker. Availability is account-specific;
+Kobashi does not promise a particular speed multiplier or billing equivalence
+with OpenAI Fast. Daybreak Blue is a separate capability and is not enabled by
+this change. See [FEATURE_UPDATES.md](FEATURE_UPDATES.md#kb-011--codex-fast-服务档适配)
+for implementation and validation status.
 
 ## Building
 

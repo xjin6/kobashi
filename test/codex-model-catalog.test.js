@@ -8,6 +8,7 @@ const {
   buildKobashiModelCatalog,
   createKobashiModelCatalog,
   ensureKobashiModelCatalog,
+  findCopilotFastModel,
   getCopilotReasoningEfforts,
   loadBundledCodexModelCatalog,
   selectCopilotOpenAIModels,
@@ -108,7 +109,8 @@ test("selects the live account-enabled OpenAI chat models without a fixed allowl
       copilotModel("gpt-5-mini", { vendor: "Azure OpenAI" }),
       copilotModel("gpt-6-astra", { name: "GPT-6 Astra" }),
       copilotModel("gpt-5.6-sol"),
-      copilotModel("gpt-5.6-sol-fast", { name: "GPT-5.6 Sol Fast (Internal only)" }),
+      copilotModel("gpt-5.6-sol-fast", { name: "GPT-5.6 Sol Fast (Internal only)", vendor: "Experimental" }),
+      copilotModel("gpt-internal-preview", { name: "GPT Internal only" }),
       copilotModel("gpt-7-disabled", { policy: { state: "disabled" } }),
       copilotModel("gpt-7-hidden", { model_picker_enabled: false }),
       copilotModel("gpt-7-embedding", { capabilities: { type: "embeddings" } }),
@@ -126,8 +128,152 @@ test("selects the live account-enabled OpenAI chat models without a fixed allowl
   assert.deepEqual(selected.map(model => model.id), [
     "gpt-6-astra",
     "gpt-5.6-sol",
+    "gpt-5.6-sol-fast",
     "gpt-5-mini",
   ]);
+});
+
+test("internal Experimental Fast variants require an independently eligible exact base", () => {
+  const base = copilotModel("gpt-5.6-sol");
+  const fast = copilotModel("gpt-5.6-sol-fast", {
+    name: "GPT-5.6 Sol Fast (Internal only)", vendor: "Experimental",
+  });
+  assert.deepEqual(selectCopilotOpenAIModels([fast, base]).map(model => model.id), [base.id, fast.id]);
+  assert.equal(findCopilotFastModel(base.id, [fast, base]), fast);
+  assert.equal(findCopilotFastModel(fast.id, [fast, base]), fast);
+  for (const models of [
+    [fast],
+    [fast, { ...base, policy: { state: "disabled" } }],
+    [fast, { ...base, model_picker_enabled: false }],
+    [fast, { ...base, supported_endpoints: ["/chat/completions"] }],
+    [fast, { ...base, name: "Internal only" }],
+    [fast, copilotModel("gpt-6-sol")],
+  ]) {
+    assert.equal(selectCopilotOpenAIModels(models).some(model => model.id === fast.id), false);
+    assert.equal(findCopilotFastModel(base.id, models), null);
+  }
+  for (const overrides of [
+    { vendor: "Other Vendor" },
+    { policy: { state: "disabled" } },
+    { model_picker_enabled: false },
+    { supported_endpoints: ["ws:/responses"] },
+    { capabilities: { type: "chat", supports: { streaming: true, tool_calls: false } } },
+  ]) {
+    assert.deepEqual(selectCopilotOpenAIModels([base, { ...fast, ...overrides }]), [base]);
+  }
+  assert.deepEqual(selectCopilotOpenAIModels([base,
+    { ...fast, id: "gpt-5.6-sol-fast-fast" }, { ...fast, id: "gpt-5.6-sol-daybreak-blue" },
+  ]), [base]);
+});
+
+test("Fast service routing preserves advertised reasoning, capacity, and supported input features", () => {
+  const base = copilotModel("gpt-next-sol", {
+    capabilities: { limits: { max_output_tokens: 1000 },
+      supports: { reasoning_effort: ["low", "medium", "high", "max"], vision: true,
+        parallel_tool_calls: true, structured_outputs: true } },
+  });
+  const makeFast = capabilities => copilotModel(`${base.id}-fast`, {
+    name: "Future Sol Fast (Internal only)", vendor: "Experimental",
+    capabilities: { ...base.capabilities, ...capabilities },
+  });
+  const fast = makeFast();
+  assert.equal(findCopilotFastModel(base.id, [base, fast]), fast);
+  for (const capabilities of [
+    { supports: { ...base.capabilities.supports, reasoning_effort: ["low", "medium", "high"] } },
+    { limits: { ...base.capabilities.limits, max_context_window_tokens: 100000 } },
+    { limits: { ...base.capabilities.limits, max_prompt_tokens: 100000 } },
+    { limits: { ...base.capabilities.limits, max_output_tokens: undefined } },
+    { supports: { ...base.capabilities.supports, vision: false } },
+    { supports: { ...base.capabilities.supports, parallel_tool_calls: false } },
+    { supports: { ...base.capabilities.supports, structured_outputs: false } },
+  ]) {
+    const narrower = makeFast(capabilities);
+    assert.equal(findCopilotFastModel(base.id, [base, narrower]), null);
+    assert.equal(findCopilotFastModel(narrower.id, [base, narrower]), narrower,
+      "an explicit Fast selection uses its own advertised capabilities");
+  }
+  assert.equal(findCopilotFastModel("gpt-next-astra", [base, fast]), null);
+  assert.equal(findCopilotFastModel("gpt-next-sol-fast-fast", [base, fast]), null);
+  assert.equal(findCopilotFastModel("gpt-next-sol-fast-fast", [
+    copilotModel("gpt-next-sol-fast-fast"), copilotModel("gpt-next-sol-fast-fast-fast"),
+  ]), null);
+});
+
+test("catalog advertises Fast only for verified pairs and replaces all inherited speed metadata", () => {
+  const native = modelRecord("gpt-5.6-sol", {
+    supported_reasoning_levels: [{ effort: "max" }, { effort: "ultra", description: "Bundled Ultra" }],
+    multi_agent_reasoning_effort: "max",
+    service_tiers: [{ id: "priority", name: "Fast", description: "2x speed" }],
+    additional_speed_tiers: [{ id: "ultrafast" }],
+    default_service_tier: "priority",
+  });
+  const base = copilotModel(native.slug, {
+    capabilities: { supports: { reasoning_effort: ["low", "max"] } },
+    kobashi_verified: { checkedAt: 123, native },
+  });
+  const fast = copilotModel(`${base.id}-fast`, {
+    name: "GPT-5.6 Sol Fast (Internal only)", vendor: "Experimental",
+    capabilities: { supports: { reasoning_effort: ["low", "max"] } },
+    kobashi_verified: { checkedAt: 123, native: null },
+  });
+  const result = buildKobashiModelCatalog({ models: [native] }, [base, fast]);
+  assert.deepEqual(result.models.map(model => model.slug), [base.id, fast.id]);
+  assert.deepEqual(result.models[0].service_tiers, [{
+    id: "priority", name: "Fast", description: "Fast responses through GitHub Copilot",
+  }]);
+  assert.deepEqual(result.models[0].additional_speed_tiers, ["fast"]);
+  assert.deepEqual(result.models[0].supported_reasoning_levels.map(level => level.effort), ["low", "max", "ultra"]);
+  assert.equal(result.models[0].base_instructions, native.base_instructions);
+  assert.equal(result.models[1].display_name, fast.name);
+  assert.deepEqual(result.models[1].service_tiers, []);
+  assert.deepEqual(result.models[1].additional_speed_tiers, []);
+  for (const record of result.models) {
+    assert.equal(Object.hasOwn(record, "default_service_tier"), false);
+  }
+  for (const models of [
+    [base],
+    [{ ...base, kobashi_verified: undefined }, fast],
+    [base, { ...fast, kobashi_verified: undefined }],
+    [base, { ...fast, policy: { state: "disabled" } }],
+    [base, { ...fast, capabilities: { ...fast.capabilities,
+      supports: { ...fast.capabilities.supports, reasoning_effort: ["low"] } } }],
+  ]) {
+    const record = buildKobashiModelCatalog({ models: [native] }, models).models[0];
+    assert.deepEqual(record.service_tiers, []);
+    assert.deepEqual(record.additional_speed_tiers, []);
+    assert.equal(Object.hasOwn(record, "default_service_tier"), false);
+  }
+  assert.equal(native.default_service_tier, "priority", "source bundle remains immutable");
+  assert.equal(native.service_tiers[0].description, "2x speed");
+});
+
+test("all OpenAI families discover their own Fast and only verified compatible pairs gain lightning metadata", () => {
+  const ids = ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-sol", "o3"];
+  const native = ids.map(id => modelRecord(id, {
+    service_tiers: [{ id: "priority", name: "Fast", description: "Native Fast" }],
+    additional_speed_tiers: ["fast", "ultrafast"], default_service_tier: "priority",
+  }));
+  const bases = ids.map(id => copilotModel(id, { kobashi_verified: { checkedAt: 123 } }));
+  const fast = bases.map(base => ({ ...base, id: `${base.id}-fast`,
+    vendor: "Experimental", name: `${base.id} Fast (Internal only)` }));
+  // One is still checking, one loses account access, one has a smaller window.
+  fast[1] = { ...fast[1], kobashi_verified: undefined };
+  fast[2] = { ...fast[2], policy: { state: "disabled" } };
+  fast[3] = copilotModel(fast[3].id, { ...fast[3],
+    capabilities: { limits: { max_prompt_tokens: 1000 } } });
+  const live = [...fast].reverse().concat([...bases].reverse());
+  const catalog = buildKobashiModelCatalog({ models: native }, live);
+  const supported = new Set([ids[0], ids[4], ids[5]]);
+  for (const record of catalog.models) {
+    const available = supported.has(record.slug);
+    assert.deepEqual(record.additional_speed_tiers, available ? ["fast"] : [], record.slug);
+    assert.deepEqual(record.service_tiers.map(tier => tier.id), available ? ["priority"] : [], record.slug);
+    assert.equal(Object.hasOwn(record, "default_service_tier"), false);
+    if (available) assert.equal(findCopilotFastModel(record.slug, live).id, `${record.slug}-fast`);
+  }
+  // Removing variants on the next discovery removes both controls together.
+  const next = buildKobashiModelCatalog({ models: native }, bases);
+  assert.ok(next.models.every(record => !record.service_tiers.length && !record.additional_speed_tiers.length));
 });
 
 test("normalizes live reasoning efforts to values Codex understands", () => {

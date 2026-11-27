@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { CodexModelCapabilities } = require("../lib/codex-model-capabilities");
 const { buildKobashiModelCatalog } = require("../lib/codex-model-catalog");
+const { createProbeRequest } = require("../lib/codex-model-probe");
 
 function model(id = "gpt-unreleased") {
   return { id, vendor: "OpenAI", model_picker_enabled: true, policy: { state: "enabled" },
@@ -18,6 +19,30 @@ function registry(options = {}) {
   return registry;
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test("verified Fast pairs survive cache restore and verify the base Ultra effort without inheriting its identity", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kobashi-fast-cache-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const base = model("gpt-5.6-sol");
+  const fast = { ...model("gpt-5.6-sol-fast"), name: "Sol Fast (Internal only)", vendor: "Experimental" };
+  const native = { slug: base.id, supported_reasoning_levels: [{ effort: "max" }, { effort: "ultra" }],
+    multi_agent_reasoning_effort: "max" };
+  const probes = [];
+  const options = { cachePath: path.join(dir, "cache.json"), probe: async (m, n) => {
+    probes.push(createProbeRequest(m, n));
+    return { state: "verified", constraints: {} };
+  } };
+  const first = registry(options);
+  first.update([fast, base], { models: [native] }); await first.idle();
+  assert.equal(probes.length, 2);
+  assert.equal(probes.find(p => p.model === fast.id).reasoning.effort, "max");
+  assert.equal(first.models().find(m => m.id === fast.id).kobashi_verified.native, null);
+  const second = registry(options);
+  assert.deepEqual(second.models().map(m => m.id), [base.id, fast.id]);
+  assert.equal(probes.length, 2, "restore must not require a paid probe to reveal an already verified Fast model");
+  second.setAccount("different-account");
+  assert.deepEqual(second.models(), []);
+});
 
 test("new models are hidden until verified and concurrent refreshes share the same probe", async () => {
   let finish, calls = 0;

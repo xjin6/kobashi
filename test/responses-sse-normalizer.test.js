@@ -1,10 +1,10 @@
 const assert = require("assert/strict");
 const { once } = require("events");
 const test = require("node:test");
-const { createResponsesSseNormalizer } = require("../lib/responses-sse-normalizer");
+const { createResponsesSseNormalizer, normalizeModelAliasHeaders } = require("../lib/responses-sse-normalizer");
 
-async function normalize(chunks) {
-  const stream = createResponsesSseNormalizer();
+async function normalize(chunks, options) {
+  const stream = createResponsesSseNormalizer(options);
   let output = "";
   stream.setEncoding("utf8");
   stream.on("data", chunk => { output += chunk; });
@@ -107,4 +107,71 @@ test("observes named SSE errors without changing the forwarded payload", async (
   assert.equal(output, source);
   assert.equal(observed[0].type, "error");
   assert.equal(observed[0].error.code, "model_not_found");
+});
+
+test("aliases exact model headers without mutating the upstream headers", () => {
+  const alias = { from: "gpt-fixture-fast", to: "gpt-fixture" };
+  const headers = Object.freeze({
+    "openai-model": alias.from,
+    "OpenAI-Model": alias.from,
+    "OPENAI-MODEL": "gpt-unexpected",
+    "x-model": alias.from,
+    "content-type": "text/event-stream",
+  });
+  assert.deepEqual(normalizeModelAliasHeaders(headers, alias), {
+    ...headers, "openai-model": alias.to, "OpenAI-Model": alias.to,
+  });
+  assert.equal(headers["openai-model"], alias.from);
+  assert.equal(normalizeModelAliasHeaders(headers), headers);
+  assert.equal(normalizeModelAliasHeaders(headers, { from: alias.from, to: alias.from }), headers);
+  const unexpected = Object.freeze({ "OpenAI-Model": `${alias.from}-snapshot` });
+  assert.equal(normalizeModelAliasHeaders(unexpected, alias), unexpected);
+  assert.equal(normalizeModelAliasHeaders(null, alias), null);
+});
+
+test("aliases native response model metadata while preserving payloads and upstream observations", async () => {
+  const modelAlias = { from: "gpt-fixture-fast", to: "gpt-fixture" };
+  const sourceEvent = {
+    type: "response.completed",
+    response: {
+      id: "resp-fast", status: "completed", model: modelAlias.from,
+      headers: { "oPeNaI-mOdEl": modelAlias.from, "x-request-id": "request-fast" },
+      output: [{ id: "msg-fast", type: "message", content: [{ type: "output_text", text: modelAlias.from }] }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    },
+  };
+  const observed = [];
+  const source = `event: response.completed\ndata: ${JSON.stringify(sourceEvent)}\n\n`;
+  const output = await normalize([source], {
+    modelAlias, onEvent: event => observed.push(JSON.parse(JSON.stringify(event))),
+  });
+  const [event] = eventsFrom(output);
+  assert.deepEqual(event, {
+    ...sourceEvent, response: {
+      ...sourceEvent.response, model: modelAlias.to,
+      headers: { ...sourceEvent.response.headers, "oPeNaI-mOdEl": modelAlias.to },
+    },
+  });
+  assert.deepEqual(observed, [sourceEvent]);
+});
+
+test("retains unexpected response model identities and bytes when no alias applies", async () => {
+  const source = 'event: response.created\r\ndata: { "response": { "id": "resp-one", "model": "gpt-other", "headers": { "OpenAI-Model": "gpt-other" } } }\r\n\r\n';
+  assert.equal(await normalize([source], {
+    modelAlias: { from: "gpt-fixture-fast", to: "gpt-fixture" },
+  }), source);
+  const aliasedSource = source.replaceAll("gpt-other", "gpt-fixture-fast");
+  assert.equal(await normalize([aliasedSource]), aliasedSource);
+  assert.equal(await normalize([aliasedSource], {
+    modelAlias: { from: "gpt-fixture-fast", to: "gpt-fixture-fast" },
+  }), aliasedSource);
+});
+
+test("supports an explicitly verified reverse alias without inferring other model names", async () => {
+  const source = 'data: {"response":{"model":"gpt-fixture","headers":{"OpenAI-Model":"gpt-fixture-fast-v2"}}}\n\n';
+  const [event] = eventsFrom(await normalize([source], {
+    modelAlias: { from: "gpt-fixture", to: "gpt-fixture-fast" },
+  }));
+  assert.equal(event.response.model, "gpt-fixture-fast");
+  assert.equal(event.response.headers["OpenAI-Model"], "gpt-fixture-fast-v2");
 });

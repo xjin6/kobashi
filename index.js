@@ -23,8 +23,9 @@ const {
   getKobashiModelCatalogPath,
   selectCopilotOpenAIModels,
 } = require("./lib/codex-model-catalog");
-const { createResponsesSseNormalizer } = require("./lib/responses-sse-normalizer");
+const { createResponsesSseNormalizer, normalizeModelAliasHeaders } = require("./lib/responses-sse-normalizer");
 const { normalizeCodexRequest, retryCodexRequest } = require("./lib/codex-request-compat");
+const { resolveCodexServiceTier } = require("./lib/codex-service-tier");
 const { CodexModelCapabilities } = require("./lib/codex-model-capabilities");
 const { CodexClientLifecycle } = require("./lib/codex-client-lifecycle");
 const { probeCodexModel } = require("./lib/codex-model-probe");
@@ -1302,32 +1303,56 @@ const proxy = http.createServer(async (req, res) => {
   let bodyBuf = Buffer.concat(bodyChunks);
   let currentRequest = null;
   let capabilityToken = null;
+  let modelAlias;
   // Keep wire compatibility separate from the picker: a supported model may
   // still reject a newer client's optional parameter (e.g. GPT-5 mini context).
   if (req.method === "POST" && bodyBuf.length && req.url.includes("/responses")) {
+    let body;
+    let parsed = false;
     try {
-      const body = JSON.parse(bodyBuf.toString());
+      body = JSON.parse(bodyBuf.toString());
+      parsed = true;
+    } catch (error) {
+      // Preserve malformed JSON for upstream validation.
+      dbg("[Codex] request JSON parsing skipped:", error.message);
+    }
+    if (parsed) {
       try {
         await ensureCodexModelSession();
       } catch (error) {
         dbg("[Codex] startup capability lookup failed:", error.message);
       }
-      const copilotModels = codexCapabilities.rawModels();
-      capabilityToken = codexCapabilities.token(body.model);
-      const normalized = normalizeCodexRequest(body, {
-        copilotModels, constraints: codexCapabilities.constraints(body.model),
-      });
-      currentRequest = normalized.body;
-      if (normalized.body !== body) {
-        bodyBuf = Buffer.from(JSON.stringify(normalized.body));
-        for (const change of normalized.changes) {
-          log(`[Codex] ${change.field} ${JSON.stringify(change.from)} → ${JSON.stringify(change.to)} (${change.reason})`);
+      try {
+        const routed = resolveCodexServiceTier(body, codexCapabilities.models());
+        if (routed.error) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: routed.error }));
+          return;
         }
+        modelAlias = routed.modelAlias;
+        const copilotModels = codexCapabilities.rawModels();
+        // Constraints, retries and access failures belong to the actual target,
+        // so a rejected Fast endpoint never disables the Standard base model.
+        capabilityToken = codexCapabilities.token(routed.body?.model);
+        const normalized = normalizeCodexRequest(routed.body, {
+          copilotModels, constraints: codexCapabilities.constraints(routed.body?.model),
+        });
+        currentRequest = normalized.body;
+        if (normalized.body !== body) {
+          bodyBuf = Buffer.from(JSON.stringify(normalized.body));
+          for (const change of [...routed.changes, ...normalized.changes]) {
+            log(`[Codex] ${change.field} ${JSON.stringify(change.from)} → ${JSON.stringify(change.to)} (${change.reason})`);
+          }
+        }
+      } catch (error) {
+        // A routing failure must not leak the original service_tier request or
+        // silently execute it with another speed/model.
+        dbg("[Codex] request preparation failed:", error.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { type: "server_error", code: "request_preparation_failed",
+          message: "Unable to prepare the Copilot request. Please retry." } }));
+        return;
       }
-    } catch (error) {
-      // Invalid JSON remains an upstream validation error, without retrying it
-      // as an authentication failure or changing the original request bytes.
-      dbg("[Codex] request normalization skipped:", error.message);
     }
   }
   try {
@@ -1421,11 +1446,14 @@ const proxy = http.createServer(async (req, res) => {
         && p.includes("/responses")
         && contentType.includes("text/event-stream")
         && (!contentEncoding || contentEncoding === "identity");
-      const responseHeaders = { ...upstreamRes.headers };
+      // Model identity is normalized together with the native SSE envelope.
+      // Other encodings/JSON responses retain their upstream header and body.
+      const responseHeaders = { ...(normalizeResponsesSse
+        ? normalizeModelAliasHeaders(upstreamRes.headers, modelAlias) : upstreamRes.headers) };
       if (normalizeResponsesSse) delete responseHeaders["content-length"];
       res.writeHead(upstreamRes.statusCode, responseHeaders);
       if (normalizeResponsesSse) {
-        const normalizer = createResponsesSseNormalizer({ onEvent: event => {
+        const normalizer = createResponsesSseNormalizer({ modelAlias, onEvent: event => {
           if (!currentRequest || (!["error", "response.failed"].includes(event.type) &&
               !event.error && !event.response?.error)) return;
           const error = { error: event.error || event.response?.error || event };
