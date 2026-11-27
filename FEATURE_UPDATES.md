@@ -6,7 +6,7 @@
 
 基线核对日期：**2026-11-28**。基线来自仓库源码、测试和 Git 历史，版本字段当前为
 **2.4.3**；本次无密钥图片工具兼容修复已在源码实现，构建/发布状态见最新记录。
-公开版本仍为 `v2.4.1`。这里的
+macOS/Windows 安装包已通过 `v2.4.3` 正式发布。这里的
 “源码已具备”不代表所有历史能力都在每个平台重新实测，具体构建与验证状态见最新
 更新记录。
 本文没有检查 TokenX 当前源码，因此不预设它缺少哪些能力。
@@ -292,7 +292,9 @@
   已读回 x64 GUI PE、7 个图标资源及 2.4.3.0 文件/产品版本。本轮在 macOS
   交叉构建，未执行 Windows 本机 self-test。`dist/SHA256SUMS.txt` 与两项产物一致，
   构建来源分别记录在 `output/last-mac-build.json`、`output/last-windows-build.json`。
-  尚未发布远端 release，运行中的应用未被替换或重启。
+  GitHub Release `v2.4.3` 已发布，标签指向源码提交 `a8798b9`；远端
+  `Kobashi.zip`、`Kobashi.exe`、`SHA256SUMS.txt` 和 `BUILDINFO.json` 的大小及
+  SHA-256 均与本地产物一致。运行中的应用未被自动替换或重启。
 - **生效条件：** 安装新包后完整退出并重开 ChatGPT/Codex，再创建新 chat；旧 thread
   的工具快照不会自动获得新 MCP。Kobashi Codex Bridge 必须保持启用。
 - **TokenX 对齐：** 核对客户端 entitlement gate；不能把 capability RPC 为 true
@@ -402,7 +404,7 @@
 
 | 日期 | 提交/版本 | 能力及实际变化 | TokenX 对齐重点 |
 | --- | --- | --- | --- |
-| 2026-11-28 | v2.4.3（本地构建，未发布） | KB-004、012：Free entitlement 下自动注册 Kobashi 图片 MCP，禁止 API key/Visual Sandbox 回退 | MCP 生命周期、取消/路径/内存边界、模型工具指令 |
+| 2026-11-28 | `a8798b9` / v2.4.3 | KB-004、012：Free entitlement 下自动注册 Kobashi 图片 MCP，禁止 API key/Visual Sandbox 回退 | MCP 生命周期、取消/路径/内存边界、模型工具指令 |
 | 2026-11-28 | v2.4.2（本地构建，未发布） | KB-011、012：Codex 原生生图/编辑；Fast endpoint 从用户模型列表隐藏 | 图片工具路由、原始字节与账号隔离；基础模型闪电、内部 Fast registry |
 | 2026-11-28 | `eca84a8` / v2.4.1 | KB-002、003、011：Copilot Fast 精确路由、条件闪电标记及双平台发布 | 全型号动态配对、无支持时隐藏、Standard/Fast 失效隔离 |
 | 2026-11-27 | `591e59c` | KB-009：启动图标 hover glow 对齐 TokenX | 双方既有视觉保持一致，不重复移植 |
