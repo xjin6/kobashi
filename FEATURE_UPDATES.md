@@ -5,7 +5,8 @@
 编号核对能力，再阅读上次同步日期之后的更新。
 
 基线核对日期：**2026-11-28**。基线来自仓库源码、测试和 Git 历史，版本字段当前为
-**2.4.1**；本次 Fast 更新已通过 `v2.4.1` 发布 macOS/Windows 安装包。这里的
+**2.4.3**；本次无密钥图片工具兼容修复已在源码实现，构建/发布状态见最新记录。
+公开版本仍为 `v2.4.1`。这里的
 “源码已具备”不代表所有历史能力都在每个平台重新实测，具体构建与验证状态见最新
 更新记录。
 本文没有检查 TokenX 当前源码，因此不预设它缺少哪些能力。
@@ -170,17 +171,19 @@
 
 ### KB-011 · Codex Fast 服务档适配
 
-- **状态：源码已实现；本次完整验证、打包和发布状态见下方日期记录。** 当前已确认
+- **状态：源码已实现；v2.4.1 首次加入，v2.4.2 收敛 picker 行为。** 当前已确认
   Copilot 的 `gpt-5.6-sol-fast` 可调用。目录允许公开 OpenAI 基础模型的精确 `-fast`
   同系变体参加验证，即使其标签为 `Experimental` / `Internal only`；其他内部或
   实验型号仍遵循现有筛选规则，不因这个例外全部放行。
 - 基础模型与 Fast 变体分别通过流式工具调用验证后，且 Fast 保留基础模型的推理
   力度、上下文/输入/输出上限及所需关键能力，才给基础模型发布 Fast 速度档。
-  Fast 变体也可作为独立条目选择，但不再附加一层 Fast 速度档。
+  Fast 变体保留在内部验证与请求注册表，但不再发布为独立 picker 或 `/v1/models`
+  条目；用户只通过基础模型的闪电/Fast 控件选择它。手动指定精确 Fast ID 的旧请求
+  仍按已验证端点处理，以保持兼容。
 - 对所有符合条件的 OpenAI 型号采用同一套发现与精确配对规则，没有单型号白名单。
   原生目录的 `additional_speed_tiers: ["fast"]` 闪电能力标记与
   `service_tiers` 中的 Fast 选项同时发布；未验证、无权限、能力较窄或没有同系
-  Fast 的基础模型，两者均为空。直接选择 `-fast` 条目时也不发布二次 Fast 开关。
+  Fast 的基础模型，两者均为空。Fast endpoint 自身始终隐藏，不发布二次 Fast 开关。
   2026-11-28 重新取得的账号目录共 39 条，唯一的 Fast ID 仍为
   `gpt-5.6-sol-fast`；原生 OpenAI 目录给其他型号标注 Fast 不能代表 Copilot 可用。
 - Codex 的 `service_tier: "priority"` 或 `"fast"` 映射到准确的同系 Fast ID；
@@ -191,7 +194,7 @@
   请求、不静默退回普通速度。兼容规则、重试及权限失效按实际 Fast 目标处理，
   Fast 失效不会连带移除基础模型的普通档。
 - 清除从原生 OpenAI 目录继承但 Copilot 未确认的速度档。Fast 验证会覆盖基础模型
-  Ultra 对应的底层力度；独立 Fast 条目不会因此虚构其原生 Ultra 模式。
+  Ultra 对应的底层力度；隐藏的 Fast endpoint 不会因此虚构独立 Ultra picker 模式。
   仅已知的流式响应型号别名在 `OpenAI-Model` 头与 SSE 中还原为用户选择的型号，
   意外的上游型号原样保留，避免掩盖异常路由。
 - **生效条件：** 使用包含该实现的新 Kobashi 程序，并按 KB-002 的启动/目录刷新
@@ -202,9 +205,132 @@
   [lib/codex-model-capabilities.js](lib/codex-model-capabilities.js)、
   [lib/responses-sse-normalizer.js](lib/responses-sse-normalizer.js)、[index.js](index.js)。
 - **TokenX 对齐：** 把账号发现、独立验证、速度档声明、请求映射、响应型号及权限
-  失效作为同一组能力实现；只显示闪电或删除 `service_tier` 并不等于支持 Fast。
+  失效作为同一组能力实现；Fast endpoint 留在内部 registry、从所有用户模型列表
+  隐藏。只显示闪电或删除 `service_tier` 并不等于支持 Fast。
+
+### KB-012 · Codex 图片生成与编辑
+
+- **状态：2.4.2 加入 Images gateway；2.4.3 增加无感本地工具。** 图片能力与聊天模型目录
+  分开发现：只接受当前 Copilot 账号返回、policy 可用、`capabilities.type` 为
+  `image` 且声明 `/v1/images/generations` 或 `/v1/images/edits` 的 GPT Image 型号。
+  `model_picker_enabled: false` 是专用图片 endpoint 的正常状态，不会把它放进 picker。
+- Codex 会话继续使用用户选择的推理模型；原生 `image_gen.imagegen` 工具按需调用
+  Images API。客户端固定别名 `gpt-image-2` 只在图片路由中解析为账号真实型号，
+  当前为 `gpt-image-2.5-flare`；未知型号、能力缺失或多候选不明确时本地拒绝，
+  不跨到聊天模型或任意猜测。prompt、quality、size、background、未来字段以及 edit
+  的 JSON `images` 引用均保持，仅替换必要的 model ID。
+- Codex 客户端会对原生 ChatGPT `PlanType::Free` 隐藏官方 `image_gen`，GitHub Copilot
+  订阅不会改变这个客户端 entitlement。2.4.3 因此随 Kobashi 自动注入本地 stdio
+  MCP `kobashi_image`：官方工具可用时仍优先，否则模型直接调用
+  `mcp__kobashi_image__imagegen`。该工具只请求 loopback Kobashi gateway，不读取或
+  要求 `OPENAI_API_KEY`，也不安装/连接 Visual Sandbox 或第三方图片插件。
+- 本地 MCP 支持 generation 与最多 5 张 PNG/JPEG/WebP 参考图的 edit；单张参考图
+  上限 20 MiB、合计上限 80 MiB、结果上限 32 MiB。原始结果以 0600 保存到
+  `~/.kobashi/generated_images`，同时返回 MCP image content、保存路径与结构化元数据。
+  参考图只允许来自该受管目录，并用 realpath 阻止 symlink 越界读取；参数、取消或
+  上游失败以 `isError` 工具结果返回，不终止 stdio server。取消 turn 或关闭 stdio
+  会中止在途 fetch，十分钟上限覆盖完整 response body；无 Content-Length 时也逐块
+  执行响应上限，且禁用重定向，避免图片额度或内存继续消耗。
+  工作区或其他目录的图片必须先通过 Codex 正常、受权限控制的文件操作复制到该目录。
+- 独立图片 gateway 使用 Kobashi Copilot token，不转发客户端 ChatGPT 凭证；401 或
+  明确认证型 400 最多重试一次。请求上限 128 MiB、响应上限 64 MiB、默认超时十分钟；
+  客户端断开或账号/bridge generation 改变会销毁上下游，旧账号图片字节不会返回。
+  图片错误不读写 Codex 聊天 capability registry，也不会移除普通或 Fast 模型。
+- 成功响应保留原始 JSON/base64 字节及 `content-type`、`retry-after`、
+  `x-codex-imagegen-request-id`。Codex 负责保存及展示；Kobashi 不重新编码图片，避免
+  无意移除 C2PA provenance。启动目录刷新只读图片元数据，不自动生图或消耗图片额度。
+- **实现：** [lib/codex-image-generation.js](lib/codex-image-generation.js)、
+  [lib/codex-image-gateway.js](lib/codex-image-gateway.js)、
+  [lib/codex-image-mcp.js](lib/codex-image-mcp.js)、[lib/codex-config.js](lib/codex-config.js)、
+  [lib/codex-model-catalog.js](lib/codex-model-catalog.js)、[index.js](index.js)。验证入口为
+  `test/codex-image-*.test.js`、`test/codex-native-image-*.test.js`、
+  [test/codex-config.test.js](test/codex-config.test.js)、[test/codex-proxy.test.js](test/codex-proxy.test.js)。
+- **限制：** 当前以 Codex 原生 JSON generations/edits 为范围，不提供独立图片模型
+  picker，也未扩展 Claude/Grok 或通用 multipart Images 客户端。GitHub 图片生成仍是
+  preview，受账号计划、组织 policy、安全检查和单独 AI credits 计费影响。实测当前
+  Flare quality 接受 `low`、`medium`、`high`、`auto`；不能照搬其他 OpenAI endpoint
+  的所有可选值。
+- **TokenX 对齐：** 应对齐独立图片目录、严格别名、原生工具路径、凭证隔离、账号
+  切换取消、body/response 上限、原始图片字节和 C2PA 保留；若客户端同样按原生
+  订阅隐藏工具，还要自动管理本地 MCP 与模型提示，不能要求 API key/第三方插件。
+  不要把图片型号伪装成 `/responses` 聊天模型。
 
 ## 更新记录
+
+### 2026-11-28 · v2.4.3：Free entitlement 下自动提供 Kobashi 图片工具
+
+- **涉及：** KB-004、KB-010、KB-012。
+- **触发与根因：** 用户安装 2.4.2 后，imagegen skill 能读取但当前 turn 没有官方
+  `image_gen.imagegen`，因而建议 `OPENAI_API_KEY` CLI；随后插件搜索又把第三方
+  Visual Sandbox 中同名 `image/gpt-image-2.5-flare` 误认成 Kobashi 入口。只读核对
+  当前工具快照、keyring 及 OpenAI Codex 源码后确认，运行账户被客户端识别为
+  `PlanType::Free`，`image_generation_available()` 会在请求到达 Kobashi 前过滤工具。
+  Visual Sandbox 只是未安装、需另行认证的远程第三方插件，与 GitHub Flare 无关。
+- **更新后：** Kobashi 在受管理 Codex 配置中自动注册 `[mcp_servers.kobashi_image]`，
+  以当前 Kobashi 可执行文件的 `--image-mcp` stdio 模式启动。模型目录明确把它视为
+  Kobashi 内置图片路径：官方工具存在时优先，否则直接用 MCP；禁止索要 API key
+  或搜索/安装 Visual Sandbox。用户无需为每个会话安装或连接任何内容。
+- **配置所有权：** 注入使用精确管理标记；重复启动幂等，退出/禁用只移除 Kobashi
+  自己的 MCP，保留其他 MCP 和运行期间修改。若用户已经拥有同名 section，完整保留
+  并跳过注入。源码运行使用 Node + `index.js --image-mcp`，打包后重入当前平台的
+  Kobashi 可执行文件；stdout 只输出 JSON-RPC，诊断写 stderr。
+- **源码验证（构建前）：** 设置本机原生 Codex 入口执行完整 `npm test`：322 项，
+  320 通过、2 项 Windows 原生检查按平台跳过、0 失败；macOS WebKit 布局与生命周期
+  12 项全部通过。覆盖 MCP 协议、generation/edit、文件/结果上限、错误恢复、source
+  entrypoint、配置注入/恢复和两种模型 instruction shape。隔离启动本机原生
+  app-server 后，`kobashi_image` 从 `starting` 进入 `ready`，新线程工具快照包含
+  Kobashi 图片入口。本条不伪造/修改 ChatGPT plan claim。
+- **用户验收：** 安装 2.4.3 并完整重开应用、新建 chat 后，用户实测图片生成效果
+  正常；无需配置 `OPENAI_API_KEY`，也未安装或连接 Visual Sandbox。
+- **构建与发布：** 已用同一源码快照生成本地 macOS/Windows 2.4.3 包。
+  `dist/Kobashi.zip` 为 37,494,415 bytes，SHA-256
+  `daf24683a9476f2e403847eaba42ecb7f6233626a682bb847d434cd59237a301`；解压后
+  三个入口均为 755，包含 arm64/x86_64，完整 bundle 的 ad-hoc 签名有效。直接运行
+  包内 arm64 runtime 的 `--image-mcp`，初始化返回 2.4.3、列出 `imagegen` 且 stderr
+  为空。`dist/Kobashi.exe` 为 58,399,048 bytes，SHA-256
+  `0bca0d0cdc9c2fd866ca771d578d216649d9caccaee0d54fa25e74595ead97f2`；
+  已读回 x64 GUI PE、7 个图标资源及 2.4.3.0 文件/产品版本。本轮在 macOS
+  交叉构建，未执行 Windows 本机 self-test。`dist/SHA256SUMS.txt` 与两项产物一致，
+  构建来源分别记录在 `output/last-mac-build.json`、`output/last-windows-build.json`。
+  尚未发布远端 release，运行中的应用未被替换或重启。
+- **生效条件：** 安装新包后完整退出并重开 ChatGPT/Codex，再创建新 chat；旧 thread
+  的工具快照不会自动获得新 MCP。Kobashi Codex Bridge 必须保持启用。
+- **TokenX 对齐：** 核对客户端 entitlement gate；不能把 capability RPC 为 true
+  误当成工具已挂载。若使用相同客户端，需同步本地 MCP、外科式配置生命周期与
+  “禁止 API key/第三方插件回退”的模型指令。
+
+### 2026-11-28 · v2.4.2：原生生图路由与隐藏 Fast endpoint
+
+- **涉及：** KB-002、KB-003、KB-010、KB-011、KB-012。
+- **触发与行为：** 用户要求普通聊天模型在需要时调用账号图片模型，同时让所有
+  `-fast` sibling 只作为基础模型的速度后端。图片模型不进入 picker；Codex 原生
+  `image_gen` 调用由独立 gateway 把 `gpt-image-2` 精确映射到已发现的 Flare。
+  Fast sibling 继续独立验证及承接请求，但从原生 picker 和 `/v1/models` 隐藏；
+  基础模型只有验证兼容时显示闪电。
+- **实现入口：** [lib/codex-image-generation.js](lib/codex-image-generation.js)、
+  [lib/codex-image-gateway.js](lib/codex-image-gateway.js)、
+  [lib/codex-model-catalog.js](lib/codex-model-catalog.js)、[index.js](index.js) 及对应测试。
+- **实际验证：** 设置本机原生 Codex 测试入口执行完整 `npm test`：306 项，304 通过、
+  2 项 Windows 原生检查按平台跳过、0 失败；macOS WebKit 布局与生命周期 12 项
+  全部通过。图片 resolver/gateway、入口分流、Fast 目录及原生 provider capability
+  均纳入回归。真实账号以 Codex 原生别名完成一次
+  `low`、1024×1024 generation 和一次同规格 edit，均映射到
+  `gpt-image-2.5-flare` 并返回 HTTP 200、有效 PNG。generation 使用 30 个文本输入
+  token / 196 个图片输出 token；edit 使用 42 个文本与 1024 个图片输入 token /
+  196 个图片输出 token。两张原始文件均含 `caBX` provenance 容器，未重新编码，
+  摘要及探针文件保存在忽略提交的 `output/image-generation-probe/`。
+- **构建与发布：** 已用同一源码快照生成本地 macOS/Windows 2.4.2 包。
+  `dist/Kobashi.zip` 为 37,458,781 bytes，SHA-256
+  `44fe052f92576c8730cf3c516f18a4f1ae1b574494fbbf196f34e972e54ae169`；解压后
+  三个入口均为 755，包含 arm64/x86_64，完整 bundle 的 ad-hoc 签名有效。
+  `dist/Kobashi.exe` 为 58,376,409 bytes，SHA-256
+  `2933e4ef5c18ef5468d1fbb5460f473e52f5e49c21b62ff3b9e4d80bf6d0c69c`；
+  已读回 x64 GUI PE、7 个图标资源及 2.4.2.0 文件/产品版本。本轮在 macOS
+  交叉构建，未执行 Windows 本机 self-test。`dist/SHA256SUMS.txt` 与两项产物一致，
+  构建来源分别记录在 `output/last-mac-build.json`、`output/last-windows-build.json`。
+  尚未发布远端 release，运行中的应用未被替换或重启。
+- **TokenX 对齐：** 先核对是否已有原生 image tool/Images API；若有，复用同一
+  gateway 语义。Fast 必须是内部 endpoint 加基础型号速度控件，不能形成重复模型行。
 
 ### 2026-11-28 · v2.4.1 补充：全模型 Fast 配对与条件闪电标记
 
@@ -276,6 +402,8 @@
 
 | 日期 | 提交/版本 | 能力及实际变化 | TokenX 对齐重点 |
 | --- | --- | --- | --- |
+| 2026-11-28 | v2.4.3（本地构建，未发布） | KB-004、012：Free entitlement 下自动注册 Kobashi 图片 MCP，禁止 API key/Visual Sandbox 回退 | MCP 生命周期、取消/路径/内存边界、模型工具指令 |
+| 2026-11-28 | v2.4.2（本地构建，未发布） | KB-011、012：Codex 原生生图/编辑；Fast endpoint 从用户模型列表隐藏 | 图片工具路由、原始字节与账号隔离；基础模型闪电、内部 Fast registry |
 | 2026-11-28 | `eca84a8` / v2.4.1 | KB-002、003、011：Copilot Fast 精确路由、条件闪电标记及双平台发布 | 全型号动态配对、无支持时隐藏、Standard/Fast 失效隔离 |
 | 2026-11-27 | `591e59c` | KB-009：启动图标 hover glow 对齐 TokenX | 双方既有视觉保持一致，不重复移植 |
 | 2026-11-26 | `2756fce` / v2.4.0 | KB-007、008、009：Grok Bridge、桌面启动图标、面板尺寸和截图 | Grok 全流程、图标交互、400×576 内容区 |

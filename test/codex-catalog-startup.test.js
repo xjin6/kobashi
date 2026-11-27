@@ -23,6 +23,10 @@ function fixture(t, cached = false) {
     CODEX_DIR: dir, CODEX_AUTH: path.join(dir, "auth.json"), CODEX_CONFIG: file,
     CODEX_MODEL_CATALOG: path.join(dir, "catalog.json"), PROXY_PORT: 18921,
     process: { platform: "test" }, dbg() {}, log() {},
+    codexImageMcpLaunchConfig: () => ({
+      command: "/fixture/Kobashi", args: ["--image-mcp"],
+      startupTimeoutSec: 15, toolTimeoutSec: 660,
+    }),
     readCodexNativeAuthPreference: () => false,
     writeTextAtomic: (file, text) => fs.writeFileSync(file, text),
     codexCapabilities: { setAccount() {}, idle: () => pending },
@@ -43,6 +47,7 @@ test("first setup waits for a verified directory and retains edits made during p
   fs.appendFileSync(f.file, 'notify = ["user-command"]\n');
   f.finish(); await writing;
   assert.ok(f.read().includes("model_catalog_json"));
+  assert.ok(f.read().includes("[mcp_servers.kobashi_image]"));
   assert.ok(f.read().includes('notify = ["user-command"]'));
   assert.deepEqual(f.counts(), { checks: 1, watches: 1 });
 });
@@ -51,6 +56,7 @@ test("verified startup cache is injected immediately without an extra inference 
   const f = fixture(t, true);
   await f.context.writeCodexConfig();
   assert.ok(f.read().includes("model_catalog_json"));
+  assert.ok(f.read().includes("[mcp_servers.kobashi_image]"));
   assert.deepEqual(f.counts(), { checks: 0, watches: 1 });
 });
 

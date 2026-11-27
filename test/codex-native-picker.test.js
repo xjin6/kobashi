@@ -104,10 +104,17 @@ test("native Fast controls follow verified model availability across families an
   }) });
   registry.setAccount("test-only");
   registry.update([...variants, ...bases].reverse(), {}); await registry.idle();
+  assert.deepEqual(registry.models().filter(model => model.id.endsWith("-fast")).map(model => model.id).sort(),
+    variants.slice(0, 2).map(model => model.id).sort(),
+    "verified Fast endpoints stay available to request routing");
   const publish = () => writeModelCatalogAtomic(catalogPath, buildKobashiModelCatalog({}, registry.models()));
   publish();
   const list = await startNativePicker(dir, children);
-  for (const model of await list()) {
+  const listed = await list();
+  assert.deepEqual(listed.map(model => model.id).sort(), ids.slice().sort(),
+    "native picker publishes only the base model rows");
+  assert.ok(listed.every(model => !model.id.endsWith("-fast")));
+  for (const model of listed) {
     const fast = ids.slice(0, 2).includes(model.id);
     assert.deepEqual(model.additionalSpeedTiers, fast ? ["fast"] : [], model.id);
     assert.deepEqual(model.serviceTiers.map(tier => tier.id), fast ? ["priority"] : [], model.id);

@@ -48,6 +48,10 @@ function fixture(preference, platform = "darwin") {
     },
     writeTextAtomic(p, text) { touches.push(["write", p]); files.set(p, text); },
     execSync(command) { commands.push(command); },
+    codexImageMcpLaunchConfig: () => ({
+      command: "/fixture/Kobashi", args: ["--image-mcp"],
+      startupTimeoutSec: 15, toolTimeoutSec: 660,
+    }),
     codexCapabilities: { setAccount() {}, async idle() {} },
     publishCodexModelCatalog: () => ({ catalogPath: "/fixture/catalog.json", catalog: { models: [{}] } }),
     async ensureCodexModelSession() {}, startCodexClientWatch() {}, stopCodexClientWatch() {},
@@ -64,6 +68,7 @@ test("native exit restores the previous provider and re-enable preserves the log
   const originalConfig = f.files.get(f.configPath);
   await f.context.writeCodexConfig();
   assert.match(f.files.get(f.configPath), /^requires_openai_auth = true$/m);
+  assert.match(f.files.get(f.configPath), /^\[mcp_servers\.kobashi_image\]$/m);
   assert.equal(f.files.get(f.configPath + ".bak"), originalConfig);
   // A normal process restart/reinjection must not replace the true baseline.
   await f.context.writeCodexConfig();
@@ -73,12 +78,14 @@ test("native exit restores the previous provider and re-enable preserves the log
   f.context.restoreCodexConfig();
   assert.match(f.files.get(f.configPath), /^model_provider = "openai"$/m);
   assert.match(f.files.get(f.configPath), /^cli_auth_credentials_store = "keyring"$/m);
-  assert.doesNotMatch(f.files.get(f.configPath), /model_providers\.kobashi|requires_openai_auth|model_catalog_json/);
+  assert.doesNotMatch(f.files.get(f.configPath),
+    /model_providers\.kobashi|mcp_servers\.kobashi_image|requires_openai_auth|model_catalog_json/);
   assert.equal(f.files.has(f.configPath + ".bak"), false);
   assert.deepEqual(f.commands, []);
   await f.context.writeCodexConfig();
   assert.match(f.files.get(f.configPath), /^model_provider = "kobashi"$/m);
   assert.match(f.files.get(f.configPath), /^requires_openai_auth = true$/m);
+  assert.match(f.files.get(f.configPath), /^\[mcp_servers\.kobashi_image\]$/m);
   assert.doesNotMatch(f.files.get(f.configPath), /^env_key\s*=/m);
   assert.equal(f.files.get(f.authPath), f.originalAuth);
   assert.equal(f.files.get(f.authPath + ".bak"), "FAKE-OLD-AUTH-BACKUP");

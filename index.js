@@ -26,6 +26,9 @@ const {
 const { createResponsesSseNormalizer, normalizeModelAliasHeaders } = require("./lib/responses-sse-normalizer");
 const { normalizeCodexRequest, retryCodexRequest } = require("./lib/codex-request-compat");
 const { resolveCodexServiceTier } = require("./lib/codex-service-tier");
+const { imageEndpointForPath } = require("./lib/codex-image-generation");
+const { createCodexImageGateway } = require("./lib/codex-image-gateway");
+const { codexImageMcpLaunchConfig, runCodexImageMcp } = require("./lib/codex-image-mcp");
 const { CodexModelCapabilities } = require("./lib/codex-model-capabilities");
 const { CodexClientLifecycle } = require("./lib/codex-client-lifecycle");
 const { probeCodexModel } = require("./lib/codex-model-probe");
@@ -41,8 +44,11 @@ const { GROK_PORT, GROK_BASE_URL, loadGrokGatewayKey, createGrokSessionReader,
 
 const DEBUG = process.argv.includes("--debug");
 const GROK_ONLY = process.argv.includes("--grok-only");
-const log = (...a) => console.log(...a);
-const dbg = (...a) => { if (DEBUG) console.log(...a); };
+const CODEX_IMAGE_MCP_MODE = process.argv.includes("--image-mcp");
+// MCP stdio reserves stdout for JSON-RPC frames. Any process diagnostics in
+// this mode belong on stderr so they can never corrupt the tool transport.
+const log = (...a) => CODEX_IMAGE_MCP_MODE ? console.error(...a) : console.log(...a);
+const dbg = (...a) => { if (DEBUG) log(...a); };
 
 // ─── Last-resort crash guards ──────────────────────────────────────────────
 // The bridge proxies long-lived streaming responses. A single unhandled error
@@ -658,7 +664,15 @@ async function writeCodexConfig() {
   // merge from it first; the backup is only the restoration baseline.
   writeTextAtomic(
     CODEX_CONFIG,
-    injectCodexConfig(src, PROXY_PORT, { modelCatalogPath, chatgptAuth }),
+    injectCodexConfig(src, PROXY_PORT, {
+      modelCatalogPath,
+      chatgptAuth,
+      // Isolated lifecycle tests evaluate this function without the surrounding
+      // process-launch helper; production always supplies the managed MCP.
+      imageMcp: typeof codexImageMcpLaunchConfig === "function"
+        ? codexImageMcpLaunchConfig()
+        : null,
+    }),
   );
 
   if (process.platform === "win32") {
@@ -1249,6 +1263,20 @@ async function getCopilotClaudeModelsRaw() {
   return models;
 }
 
+const codexImageGateway = createCodexImageGateway({
+  active: () => githubToken && codexEnabled &&
+    `${codexConfigGeneration}/${copilotModelsGeneration}`,
+  models: () => getCopilotModelsRaw({ allowStale: false }),
+  hostname: COPILOT_API,
+  request: upstreamHttpsRequest,
+  token: ensureCopilotToken,
+  invalidateToken: rejected => {
+    if (copilotToken === rejected) { copilotToken = null; copilotTokenExpiry = 0; }
+  },
+  isAuthFailure: isAuthFailureBody,
+  onRoute: change => log(`[Codex Image] ${change.field} ${JSON.stringify(change.from)} → ${JSON.stringify(change.to)} (${change.reason})`),
+});
+
 // ─── Codex proxy server (OpenAI passthrough) ──────────────────────────────
 
 // Copilot signals a dead/expired token in two different ways: HTTP 401, or HTTP
@@ -1285,7 +1313,10 @@ const proxy = http.createServer(async (req, res) => {
     }
     // This is the same verified registry used to write the native picker.
     // Disk files from older versions/accounts never bypass online validation.
-    const models = codexCapabilities.models();
+    // Verified Fast siblings are routing endpoints behind the base model's
+    // speed control. Keep them out of every user-facing model list while the
+    // capability registry retains them for exact request routing.
+    const models = codexCapabilities.models().filter(model => !model.id.endsWith("-fast"));
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       object: "list",
@@ -1296,6 +1327,10 @@ const proxy = http.createServer(async (req, res) => {
         owned_by: String(model.vendor || "copilot").toLowerCase().replace(/\s+/g, "-"),
       })),
     }));
+    return;
+  }
+  if (imageEndpointForPath(req.url)) {
+    await codexImageGateway(req, res);
     return;
   }
   const bodyChunks = [];
@@ -1823,5 +1858,10 @@ function startDesktop() {
   testReq.end();
 }
 
-if (GROK_ONLY) startGrokGateway();
+if (CODEX_IMAGE_MCP_MODE) {
+  runCodexImageMcp({ version: APP_VERSION }).catch(error => {
+    console.error(`[Kobashi Image MCP] ${error.message}`);
+    process.exitCode = 1;
+  });
+} else if (GROK_ONLY) startGrokGateway();
 else startDesktop();

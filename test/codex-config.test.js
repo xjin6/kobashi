@@ -4,9 +4,81 @@ const {
   injectCodexConfig,
   restoreCodexConfigContents,
   isKobashiManagedConfig,
+  hasKobashiImageMcpConflict,
+  isKobashiManagedImageMcp,
   isKobashiManagedAuth,
   parseCodexNativeAuthPreference,
 } = require("../lib/codex-config");
+
+const imageMcp = {
+  command: "C:\\Program Files\\Kobashi\\Kobashi.exe",
+  args: ["--image-mcp", "quoted value"],
+  startupTimeoutSec: 20,
+  toolTimeoutSec: 700,
+};
+
+test("injects the managed image MCP idempotently with safely quoted command arguments", () => {
+  const baseline = `[mcp_servers.other]
+command = "other-server"
+`;
+  const live = injectCodexConfig(baseline, 18921, { imageMcp });
+  assert.match(live, /^\[mcp_servers\.kobashi_image\]$/m);
+  assert.match(live, /^# Kobashi managed image tool$/m);
+  assert.match(live, /^command = "C:\\\\Program Files\\\\Kobashi\\\\Kobashi\.exe"$/m);
+  assert.match(live, /^args = \["--image-mcp", "quoted value"\]$/m);
+  assert.match(live, /^startup_timeout_sec = 20$/m);
+  assert.match(live, /^tool_timeout_sec = 700$/m);
+  assert.match(live, /^\[mcp_servers\.other\]$/m);
+  assert.equal((live.match(/\[mcp_servers\.kobashi_image\]/g) || []).length, 1);
+  assert.equal(injectCodexConfig(live, 18921, { imageMcp }), live);
+  assert.equal(isKobashiManagedImageMcp(live), true);
+  assert.equal(hasKobashiImageMcpConflict(live), false);
+  assert.equal(isKobashiManagedConfig(`[mcp_servers.kobashi_image]\n` +
+    `# Kobashi managed image tool\ncommand = "fixture"\n`), true,
+  "a surviving managed MCP still identifies a Kobashi-owned live config");
+});
+
+test("an existing user image MCP section is preserved and blocks managed injection", () => {
+  const baseline = `[mcp_servers.kobashi_image]
+command = "user-owned-image-server"
+args = ["--keep"]
+
+[mcp_servers.other]
+command = "other-server"
+`;
+  const live = injectCodexConfig(baseline, 18921, { imageMcp });
+  assert.equal((live.match(/\[mcp_servers\.kobashi_image\]/g) || []).length, 1);
+  assert.match(live, /^command = "user-owned-image-server"$/m);
+  assert.match(live, /^args = \["--keep"\]$/m);
+  assert.doesNotMatch(live, /Kobashi managed image tool/);
+  assert.equal(hasKobashiImageMcpConflict(live), true);
+  assert.equal(isKobashiManagedImageMcp(live), false);
+});
+
+test("restore removes only the managed image MCP and preserves other live MCP changes", () => {
+  const backup = `[mcp_servers.original]
+command = "original-server"
+`;
+  const injected = injectCodexConfig(backup, 18921, { imageMcp });
+  const live = `${injected.trimEnd()}
+
+[mcp_servers.added_while_running]
+command = "new-server"
+`;
+  const restored = restoreCodexConfigContents(live, backup, { imageMcp });
+  assert.doesNotMatch(restored, /mcp_servers\.kobashi_image|Kobashi managed image tool/);
+  assert.match(restored, /^\[mcp_servers\.original\]$/m);
+  assert.match(restored, /^\[mcp_servers\.added_while_running\]$/m);
+  assert.match(restored, /^command = "new-server"$/m);
+  assert.equal(restoreCodexConfigContents(restored, backup, { imageMcp }), restored);
+});
+
+test("restore without a backup removes a managed image MCP but retains user configuration", () => {
+  const live = injectCodexConfig("theme = \"dark\"\n", 18921, { imageMcp });
+  const restored = restoreCodexConfigContents(live, "", { imageMcp });
+  assert.match(restored, /^theme = "dark"$/m);
+  assert.doesNotMatch(restored, /mcp_servers\.kobashi_image|Kobashi managed image tool/);
+});
 
 test("ChatGPT authentication is an explicit option with the same Kobashi provider ID", () => {
   const original = injectCodexConfig('cli_auth_credentials_store = "keyring"\n', 18921);
@@ -259,11 +331,12 @@ show-context-window-usage = true
 test("CRLF and UTF-8 BOM are retained without introducing lone LF characters", () => {
   const source = "\uFEFFmodel_context_window = 1000000\r\n\r\n\r\n" +
     "[desktop]\r\nshow-context-window-usage = true\r\n";
-  const options = { modelCatalogPath: "C:\\Users\\me\\models.json" };
+  const options = { modelCatalogPath: "C:\\Users\\me\\models.json", imageMcp };
 
   const live = injectCodexConfig(source, 18921, options);
   assert.equal(live.startsWith("\uFEFF"), true);
   assert.equal(/(^|[^\r])\n/.test(live), false);
+  assert.match(live, /\[mcp_servers\.kobashi_image\]\r\n# Kobashi managed image tool\r\n/);
 
   const restored = restoreCodexConfigContents(live, source, options);
   assert.equal(restored, source);

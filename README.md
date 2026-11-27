@@ -6,9 +6,11 @@ For the current capability baseline and change history used to bring TokenX up t
 date, read [FEATURE_UPDATES.md](FEATURE_UPDATES.md). Feature, compatibility, UI,
 and packaging changes update that ledger alongside the implementation.
 
-Kobashi **2.4.1** is available for macOS and Windows, adding verified Copilot
-Fast routing and showing the lightning control only for supported models. See
-[Feature Updates](FEATURE_UPDATES.md) for validation and release details.
+Kobashi **2.4.3** is available for macOS and Windows. It adds an automatically
+managed Kobashi image tool for accounts where Codex's subscription-gated native
+image tool is unavailable. Fast siblings remain hidden routing endpoints, with
+Fast exposed only through compatible base models. See [Feature Updates](FEATURE_UPDATES.md)
+for validation and release details.
 Local macOS builds now produce `dist/Kobashi.zip`, with execution permissions
 and the assembled bundle signature checked again after extraction.
 Windows-native builds execute the packaged self-test and verify asset hashes;
@@ -27,8 +29,8 @@ Kobashi is a local bridge for Claude Code, OpenAI Codex and Grok Build. It route
 
 | Platform | Download | Size |
 |----------|----------|------|
-| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.4.1)](https://github.com/xjin6/kobashi/releases/download/v2.4.1/Kobashi.zip)** | ~36 MB |
-| **Windows x64** | **[Kobashi.exe (v2.4.1)](https://github.com/xjin6/kobashi/releases/download/v2.4.1/Kobashi.exe)** | ~56 MB |
+| **macOS** (Apple Silicon + Intel) | **[Kobashi.zip (v2.4.3)](https://github.com/xjin6/kobashi/releases/download/v2.4.3/Kobashi.zip)** | ~36 MB |
+| **Windows x64** | **[Kobashi.exe (v2.4.3)](https://github.com/xjin6/kobashi/releases/download/v2.4.3/Kobashi.exe)** | ~56 MB |
 
 On macOS, extract `Kobashi.zip` with macOS Archive Utility, then move
 `Kobashi.app` to Applications. The troubleshooting note below applies to older
@@ -289,6 +291,48 @@ does not schedule further checks in the background; restart Codex to retry.
 Exiting the clients stops queued validation work. Account changes and newer
 startups invalidate late results from older rounds.
 
+### Codex image generation through Copilot
+
+Codex keeps the selected chat/reasoning model for the conversation. When an
+image is requested, its native `image_gen.imagegen` tool calls Kobashi's
+`/v1/images/generations` or `/v1/images/edits` endpoint; the dedicated image
+model never becomes a chat-model picker row.
+
+Codex itself hides that official tool when the native ChatGPT account is treated
+as Free, even when the connected GitHub Copilot account includes image credits.
+Kobashi therefore registers a local stdio MCP server named `kobashi_image` in
+the managed Codex config. Models prefer the official `image_gen.imagegen` when
+it is available and otherwise call `mcp__kobashi_image__imagegen`. Both paths
+use the same local Images gateway. The fallback ships inside Kobashi, needs no
+`OPENAI_API_KEY`, and never installs or connects Visual Sandbox or another
+third-party image plugin.
+
+The native client currently sends the image alias `gpt-image-2`. Kobashi resolves
+that alias only on Images API routes to an enabled, account-provided GPT Image
+endpoint—currently `gpt-image-2.5-flare`. Prompt, size, quality, background and
+JSON edit-image references remain unchanged. The official path renders Codex's
+normal image-generation item; the Kobashi MCP path saves the original bytes
+under `~/.kobashi/generated_images` and returns both an MCP image preview and the
+saved path. Client ChatGPT credentials are replaced with Kobashi's Copilot token
+and never reach GitHub.
+
+Image availability is discovered separately from chat models. Requests are
+bounded to 128 MiB, responses to 64 MiB and each upstream image call to ten
+minutes. A client disconnect or account/bridge change cancels the in-flight
+request; authentication is replayed at most once. Image errors never remove or
+alter chat models.
+Generation consumes GitHub AI credits and remains subject to account policy and
+GitHub's preview availability. Kobashi does not issue paid image probes during
+startup.
+
+The managed MCP section is injected and restored with the Kobashi provider; an
+existing user-owned `[mcp_servers.kobashi_image]` section is preserved rather
+than overwritten. After installing a build containing this tool, fully quit and
+reopen ChatGPT/Codex and start a new chat so the app-server and thread tool
+snapshots include it. For edits, references are restricted to
+`~/.kobashi/generated_images`; a project image must first be copied there using
+the normal permission-controlled file tools.
+
 ### Codex Fast through Copilot
 
 Copilot can expose a separate Fast model ID, such as `gpt-5.6-sol-fast`, while
@@ -300,15 +344,16 @@ model can enter discovery even if Copilot labels it `Experimental` or
 `Internal only`. The base and variant must pass their own streaming tool-call
 checks. The base model gains a Fast speed option only when the variant also
 preserves its advertised reasoning levels, context/prompt/output capacity and
-required capabilities. The Fast model can also appear as a direct picker entry.
-Unrelated internal models are not enabled by this rule.
+required capabilities. The verified Fast sibling remains an internal routing
+endpoint and is omitted from both the native picker and `/v1/models`. Unrelated
+internal models are not enabled by this rule.
 
 This discovery and routing applies to every eligible OpenAI model family; no
 individual Fast model is hard-coded. The native picker's lightning capability
 and Fast selector are published together only for a verified compatible pair.
-Models without that pair expose neither, and a directly selected `-fast` model
-does not expose another Fast switch. A newly available sibling is picked up by
-the normal startup discovery process. The account catalog checked on
+Models without that pair expose neither, and the hidden `-fast` sibling never
+creates a second model choice or another Fast switch. A newly available sibling
+is picked up by the normal startup discovery process. The account catalog checked on
 2026-11-28 contained 39 entries and only one Fast ID, `gpt-5.6-sol-fast`;
 other OpenAI models' native Fast metadata does not imply Copilot availability.
 
@@ -320,9 +365,9 @@ token budgets are preserved. If Fast is unavailable, or the client requests an
 unknown tier, Kobashi returns a clear local error without an upstream request
 or a silent Standard fallback.
 
-OpenAI-native speed tiers are not inherited without Copilot verification. A
-directly selected Fast model does not inherit an unsupported Ultra option from
-its base. Known streaming response model aliases are normalized in the `OpenAI-Model`
+OpenAI-native speed tiers are not inherited without Copilot verification. The
+routing-only Fast endpoint does not create an unsupported Ultra picker mode of
+its own. Known streaming response model aliases are normalized in the `OpenAI-Model`
 header and SSE events to keep the client's selected identity consistent; an
 unexpected upstream model remains visible. Fast-specific access failures and
 compatibility rules do not disable the base model's Standard route.

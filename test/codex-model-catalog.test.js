@@ -5,6 +5,7 @@ const path = require("path");
 const test = require("node:test");
 const {
   EMPTY_CATALOG_MODEL_ID,
+  KOBASHI_IMAGE_TOOL_INSTRUCTIONS,
   buildKobashiModelCatalog,
   createKobashiModelCatalog,
   ensureKobashiModelCatalog,
@@ -217,16 +218,15 @@ test("catalog advertises Fast only for verified pairs and replaces all inherited
     kobashi_verified: { checkedAt: 123, native: null },
   });
   const result = buildKobashiModelCatalog({ models: [native] }, [base, fast]);
-  assert.deepEqual(result.models.map(model => model.slug), [base.id, fast.id]);
+  assert.deepEqual(result.models.map(model => model.slug), [base.id],
+    "the verified Fast endpoint remains routing-only and never becomes a picker row");
   assert.deepEqual(result.models[0].service_tiers, [{
     id: "priority", name: "Fast", description: "Fast responses through GitHub Copilot",
   }]);
   assert.deepEqual(result.models[0].additional_speed_tiers, ["fast"]);
   assert.deepEqual(result.models[0].supported_reasoning_levels.map(level => level.effort), ["low", "max", "ultra"]);
-  assert.equal(result.models[0].base_instructions, native.base_instructions);
-  assert.equal(result.models[1].display_name, fast.name);
-  assert.deepEqual(result.models[1].service_tiers, []);
-  assert.deepEqual(result.models[1].additional_speed_tiers, []);
+  assert.equal(result.models[0].base_instructions,
+    `${native.base_instructions}\n\n${KOBASHI_IMAGE_TOOL_INSTRUCTIONS}`);
   for (const record of result.models) {
     assert.equal(Object.hasOwn(record, "default_service_tier"), false);
   }
@@ -263,6 +263,8 @@ test("all OpenAI families discover their own Fast and only verified compatible p
     capabilities: { limits: { max_prompt_tokens: 1000 } } });
   const live = [...fast].reverse().concat([...bases].reverse());
   const catalog = buildKobashiModelCatalog({ models: native }, live);
+  assert.deepEqual(catalog.models.map(record => record.slug), ids,
+    "Fast endpoints are available to routing but hidden from every picker family");
   const supported = new Set([ids[0], ids[4], ids[5]]);
   for (const record of catalog.models) {
     const available = supported.has(record.slug);
@@ -285,6 +287,37 @@ test("normalizes live reasoning efforts to values Codex understands", () => {
     },
   });
   assert.deepEqual(getCopilotReasoningEfforts(model), ["none", "low", "high", "max"]);
+});
+
+test("adds the Kobashi image tool fallback to either native instruction shape exactly once", () => {
+  const live = [copilotModel("gpt-6-astra")];
+  const base = modelRecord("gpt-6-astra", {
+    base_instructions: "Keep the original base instructions.",
+    model_messages: { preserved: "base-shape metadata" },
+  });
+  const baseResult = buildKobashiModelCatalog({ models: [base] }, live).models[0];
+  assert.equal(baseResult.base_instructions,
+    `Keep the original base instructions.\n\n${KOBASHI_IMAGE_TOOL_INSTRUCTIONS}`);
+  assert.deepEqual(baseResult.model_messages, { preserved: "base-shape metadata" });
+  assert.equal(base.base_instructions, "Keep the original base instructions.");
+
+  const nested = modelRecord("gpt-6-astra", {
+    base_instructions: undefined,
+    model_messages: {
+      instructions_template: "Keep the nested instruction template.\n",
+      preserved: { value: 1 },
+    },
+  });
+  const nestedResult = buildKobashiModelCatalog({ models: [nested] }, live).models[0];
+  assert.equal(Object.hasOwn(nestedResult, "base_instructions"), false);
+  assert.equal(nestedResult.model_messages.instructions_template,
+    `Keep the nested instruction template.\n\n${KOBASHI_IMAGE_TOOL_INSTRUCTIONS}`);
+  assert.deepEqual(nestedResult.model_messages.preserved, { value: 1 });
+  assert.equal(nested.model_messages.instructions_template, "Keep the nested instruction template.\n");
+
+  const rebuilt = buildKobashiModelCatalog({ models: [baseResult] }, live).models[0];
+  assert.equal(rebuilt.base_instructions.split(KOBASHI_IMAGE_TOOL_INSTRUCTIONS).length - 1, 1,
+    "republishing an already-managed catalog never duplicates the instruction block");
 });
 
 test("live models drive the catalog and exact bundled metadata is preserved", () => {
@@ -604,7 +637,8 @@ test("Windows desktop catalog is discovered without Codex on Explorer's PATH", (
     assert.deepEqual(commands, [appCommand]);
     assert.deepEqual(result.models[0].supported_reasoning_levels.map(level => level.effort),
       ["medium", "xhigh", "ultra"]);
-    assert.equal(result.models[0].base_instructions, "Bundled instructions for gpt-6-astra");
+    assert.equal(result.models[0].base_instructions,
+      `Bundled instructions for gpt-6-astra\n\n${KOBASHI_IMAGE_TOOL_INSTRUCTIONS}`);
   });
 });
 

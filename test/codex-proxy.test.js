@@ -8,6 +8,7 @@ const test = require("node:test");
 const { selectCopilotOpenAIModels } = require("../lib/codex-model-catalog");
 const { normalizeCodexRequest, retryCodexRequest } = require("../lib/codex-request-compat");
 const { resolveCodexServiceTier } = require("../lib/codex-service-tier");
+const { imageEndpointForPath } = require("../lib/codex-image-generation");
 const { createResponsesSseNormalizer, normalizeModelAliasHeaders } = require("../lib/responses-sse-normalizer");
 
 const { CodexModelCapabilities } = require("../lib/codex-model-capabilities");
@@ -43,6 +44,11 @@ async function setup(t, options = {}) {
     copilotToken: null, copilotTokenExpiry: 0, COPILOT_API: "mock.invalid",
     log() {}, dbg() {}, normalizeCodexRequest, retryCodexRequest, selectCopilotOpenAIModels,
     createResponsesSseNormalizer, normalizeModelAliasHeaders, resolveCodexServiceTier,
+    imageEndpointForPath,
+    codexImageGateway: options.codexImageGateway || (async (req, res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unexpected image route" }));
+    }),
     getCopilotModelsRaw: async () => models,
     ensureCodexModelSession: async () => { refreshes++; },
     readCodexModelCatalog: () => null,
@@ -79,8 +85,31 @@ async function setup(t, options = {}) {
     post: (body, headers = {}) => fetch(`${base}/v1/responses`, {
       method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
     }),
+    postPath: (route, body, headers = {}) => fetch(`${base}${route}`, {
+      method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
+    }),
   };
 }
+
+test("native Images API paths use the isolated image gateway before the chat proxy", async t => {
+  const calls = [];
+  const bridge = await setup(t, { codexImageGateway: async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    calls.push({ method: req.method, url: req.url, body: JSON.parse(Buffer.concat(chunks)) });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end('{"data":[{"b64_json":"fixture"}]}');
+  } });
+  for (const route of ["/v1/images/generations", "/images/edits?client=codex"]) {
+    const response = await bridge.postPath(route, { model: "gpt-image-2", prompt: "fixture" });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).data[0].b64_json, "fixture");
+  }
+  assert.deepEqual(calls.map(call => call.url),
+    ["/v1/images/generations", "/images/edits?client=codex"]);
+  assert.equal(bridge.requests.length, 0, "image traffic never enters the Responses upstream path");
+  assert.equal(bridge.counts().tokenRequests, 0, "the isolated gateway owns image authentication");
+});
 
 test("native account credentials and identity headers never reach the Copilot upstream", async t => {
   const bridge = await setup(t);
@@ -249,6 +278,9 @@ test("speed routing leaves missing-model validation to the upstream without thro
 
 test("native Fast routes to the exact verified sibling and preserves Ultra, tools and conversation", async t => {
   const bridge = await setup(t, { models: fastModels() });
+  const listing = await bridge.getModels();
+  assert.deepEqual((await listing.json()).data.map(model => model.id), ["gpt-5.6-sol"],
+    "the verified Fast endpoint stays available to routing without becoming a model-list row");
   const body = { model: "gpt-5.6-sol", service_tier: "priority", stream: true,
     reasoning: { effort: "max", context: "all_turns" },
     input: [{ role: "developer", content: "Proactively delegate work to subagents." },
